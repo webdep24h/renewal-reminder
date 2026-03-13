@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "renewal-reminder",
+  "compatibility_date": "2024-09-23",
+  "compatibility_flags": ["nodejs_compat"],
+  "pages_build_output_dir": "./dist",
+
+  // Cloudflare Cron Trigger - runs daily at 08:00 UTC+7 (01:00 UTC)
+  // NOTE: For Pages, cron triggers are defined in Workers (see src/worker-cron.ts)
+  // The cron endpoint /api/cron/check-renewals is called by external cron or CF Worker
+}

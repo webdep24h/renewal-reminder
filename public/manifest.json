@@ -1,0 +1,36 @@
+{
+  "name": "Renewal Reminder",
+  "short_name": "Renewal",
+  "description": "Theo dõi và nhắc nhở gia hạn hosting, domain, SSL tự động",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "url": "/",
+      "description": "Xem tổng quan gia hạn"
+    },
+    {
+      "name": "Thêm mới",
+      "url": "/?action=add",
+      "description": "Thêm dịch vụ mới"
+    }
+  ]
+}

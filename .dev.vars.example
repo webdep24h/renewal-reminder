@@ -1,0 +1,56 @@
+# ============================================================
+# Renewal Reminder — Environment Variables Template
+# Copy this file to .dev.vars (local development)
+# For production, set in Cloudflare Pages Dashboard
+# ============================================================
+
+# ── Supabase (REQUIRED) ─────────────────────────────────────
+# Get from: https://app.supabase.com → Settings → API
+
+# Frontend (public — safe to expose)
+VITE_SUPABASE_URL=https://YOUR_PROJECT_ID.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...YOUR_ANON_KEY
+
+# Backend (secret — service role, NEVER expose to client)
+SUPABASE_URL=https://YOUR_PROJECT_ID.supabase.co
+SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...YOUR_SERVICE_KEY
+
+# ── Web Push VAPID Keys (REQUIRED for Push Notifications) ───
+# Generate with: npx web-push generate-vapid-keys
+
+# Frontend (public — safe to expose)
+VITE_VAPID_PUBLIC_KEY=BNxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# Backend (secret — NEVER expose to client, no VITE_ prefix)
+VAPID_PRIVATE_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# Contact email for VAPID (required, format: mailto:xxx)
+VAPID_SUBJECT=mailto:admin@yourdomain.com
+
+# ── App Configuration ────────────────────────────────────────
+# Your app's public URL (no trailing slash)
+APP_URL=http://localhost:3000
+
+# Secret for protecting the cron endpoint
+# Generate: openssl rand -base64 32
+CRON_SECRET=change-this-to-a-random-secret-string
+
+# ── Email (Optional) ─────────────────────────────────────────
+# Option 1: Resend (recommended — https://resend.com, 100 emails/day free)
+RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# Option 2: Gmail SMTP (use App Password, not regular password)
+# Enable at: https://myaccount.google.com/apppasswords
+# SMTP_USER=your-gmail@gmail.com
+# SMTP_PASS=xxxx-xxxx-xxxx-xxxx
+
+# ── Telegram (Optional — configure in app Settings instead) ──
+# Better to configure Telegram via the in-app Settings UI
+# These are NOT needed here — configure through Settings page after login
+# TELEGRAM_BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrSTUvwxYZ
+# TELEGRAM_CHAT_ID=123456789
+
+# ── Cloudflare Pages (auto-injected, no need to set) ─────────
+# CF_PAGES_URL — injected automatically
+# CF_PAGES_BRANCH — injected automatically
+# CF_PAGES_COMMIT_SHA — injected automatically

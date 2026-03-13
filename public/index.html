@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="vi" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#2563eb" />
+  <meta name="description" content="Theo dõi và nhắc nhở gia hạn hosting, domain, SSL tự động" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Renewal Reminder" />
+  <title>Renewal Reminder</title>
+
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+
+  <!-- Tailwind CSS v4 -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@0.576.0/dist/umd/lucide.min.js"></script>
+
+  <!-- Shoelace Web Components -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.20.1/cdn/themes/light.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.20.1/cdn/themes/dark.css" />
+  <script type="module" src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.20.1/cdn/shoelace-autoloader.js"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
+
+  <script>
+    // Configure Tailwind
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            primary: '#2563eb',
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* Base styles */
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+
+    /* Dark mode for Shoelace */
+    html.dark { color-scheme: dark; }
+    html.dark body { background-color: #0f172a; color: #f1f5f9; }
+
+    /* Page transitions */
+    .page { display: none; }
+    .page.active { display: block; }
+
+    /* Loading spinner */
+    .spinner {
+      width: 20px; height: 20px;
+      border: 2px solid #e2e8f0;
+      border-top-color: #2563eb;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      display: inline-block;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Custom scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    html.dark ::-webkit-scrollbar-thumb { background: #475569; }
+
+    /* Mobile bottom padding for safe area */
+    #app-shell { padding-bottom: env(safe-area-inset-bottom, 0); }
+
+    /* Toast notifications */
+    #toast-container {
+      position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 9999;
+      display: flex; flex-direction: column; gap: 0.5rem;
+    }
+    .toast {
+      padding: 0.75rem 1rem; border-radius: 0.5rem;
+      font-size: 0.875rem; font-weight: 500;
+      max-width: 320px; word-break: break-word;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      animation: slideIn 0.3s ease;
+    }
+    .toast.success { background: #22c55e; color: white; }
+    .toast.error { background: #ef4444; color: white; }
+    .toast.info { background: #3b82f6; color: white; }
+    .toast.warning { background: #f59e0b; color: white; }
+    @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+    /* Status badges */
+    .badge-overdue { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+    .badge-1day { background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa; }
+    .badge-3days { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+    .badge-1week { background: #fefce8; color: #854d0e; border: 1px solid #fef08a; }
+    .badge-2weeks { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+    .badge-1month { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
+    .badge-safe { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+    .badge-archived { background: #f8fafc; color: #64748b; border: 1px solid #e2e8f0; }
+
+    html.dark .badge-overdue { background: #450a0a; color: #fca5a5; border-color: #7f1d1d; }
+    html.dark .badge-1day { background: #431407; color: #fdba74; border-color: #7c2d12; }
+    html.dark .badge-3days { background: #451a03; color: #fcd34d; border-color: #78350f; }
+    html.dark .badge-safe { background: #052e16; color: #86efac; border-color: #14532d; }
+
+    /* Navbar */
+    #navbar { position: sticky; top: 0; z-index: 100; }
+
+    /* Table styles */
+    .data-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+    .data-table th { padding: 0.75rem 1rem; text-align: left; font-weight: 600; border-bottom: 2px solid #e2e8f0; background: #f8fafc; white-space: nowrap; }
+    .data-table td { padding: 0.75rem 1rem; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+    .data-table tr:hover td { background: #f8fafc; cursor: pointer; }
+    html.dark .data-table th { background: #1e293b; border-color: #334155; }
+    html.dark .data-table td { border-color: #1e293b; }
+    html.dark .data-table tr:hover td { background: #1e293b; }
+
+    /* Cards */
+    .stat-card { transition: transform 0.2s, box-shadow 0.2s; }
+    .stat-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.1); }
+
+    /* Mobile responsive */
+    @media (max-width: 640px) {
+      .hide-mobile { display: none !important; }
+      .data-table th, .data-table td { padding: 0.5rem 0.75rem; font-size: 0.8125rem; }
+    }
+  </style>
+</head>
+<body class="bg-gray-50 dark:bg-slate-900 text-gray-900 dark:text-slate-100 min-h-screen transition-colors duration-200">
+
+<!-- Toast Container -->
+<div id="toast-container"></div>
+
+<!-- Loading Overlay -->
+<div id="loading-overlay" class="fixed inset-0 bg-white dark:bg-slate-900 flex items-center justify-center z-50">
+  <div class="text-center">
+    <div class="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4"></div>
+    <p class="text-gray-500 dark:text-slate-400 text-sm">Đang tải...</p>
+  </div>
+</div>
+
+<!-- Auth Page -->
+<div id="page-auth" class="page min-h-screen flex items-center justify-center p-4">
+  <div class="w-full max-w-md">
+    <div class="text-center mb-8">
+      <div class="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+        <i data-lucide="bell" class="w-8 h-8 text-white"></i>
+      </div>
+      <h1 class="text-2xl font-bold text-gray-900 dark:text-white">Renewal Reminder</h1>
+      <p class="text-gray-500 dark:text-slate-400 mt-1 text-sm">Theo dõi gia hạn hosting, domain, SSL</p>
+    </div>
+
+    <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-8 border border-gray-100 dark:border-slate-700">
+      <!-- Step 1: Email -->
+      <div id="auth-step-email">
+        <h2 class="text-lg font-semibold mb-6">Đăng nhập</h2>
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Email</label>
+            <input id="auth-email" type="email" placeholder="your@email.com"
+              class="w-full px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white outline-none text-sm"
+              onkeydown="if(event.key==='Enter')authSendOtp()" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Mật khẩu</label>
+            <div class="relative">
+              <input id="auth-password" type="password" placeholder="••••••••"
+                class="w-full px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white outline-none text-sm pr-10"
+                onkeydown="if(event.key==='Enter')authSendOtp()" />
+              <button type="button" onclick="togglePasswordVisibility('auth-password')" class="absolute right-3 top-3.5 text-gray-400 hover:text-gray-600">
+                <i data-lucide="eye" class="w-4 h-4"></i>
+              </button>
+            </div>
+          </div>
+          <button onclick="authLogin()" id="btn-login"
+            class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-medium text-sm transition-colors flex items-center justify-center gap-2">
+            <span>Tiếp tục</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Step 2: OTP -->
+      <div id="auth-step-otp" class="hidden">
+        <button onclick="authBackToEmail()" class="flex items-center gap-1 text-gray-500 hover:text-gray-700 text-sm mb-4">
+          <i data-lucide="arrow-left" class="w-4 h-4"></i> Quay lại
+        </button>
+        <h2 class="text-lg font-semibold mb-2">Xác thực OTP</h2>
+        <p class="text-sm text-gray-500 dark:text-slate-400 mb-6" id="otp-desc"></p>
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Mã OTP (6 chữ số)</label>
+            <input id="auth-otp" type="text" maxlength="6" placeholder="123456"
+              class="w-full px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white outline-none text-center text-2xl font-mono tracking-widest"
+              onkeydown="if(event.key==='Enter')authVerifyOtp()" />
+          </div>
+          <button onclick="authVerifyOtp()" id="btn-verify-otp"
+            class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-medium text-sm transition-colors">
+            Xác nhận
+          </button>
+          <p class="text-center text-sm text-gray-500">
+            Không nhận được?
+            <button onclick="authResendOtp()" class="text-blue-600 hover:underline">Gửi lại</button>
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Main App Shell -->
+<div id="app-shell" class="hidden">
+  <!-- Navbar -->
+  <nav id="navbar" class="bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6">
+      <div class="flex items-center justify-between h-14">
+        <!-- Logo -->
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+            <i data-lucide="bell" class="w-4 h-4 text-white"></i>
+          </div>
+          <span class="font-bold text-gray-900 dark:text-white text-sm sm:text-base">Renewal Reminder</span>
+        </div>
+
+        <!-- Desktop Nav Links -->
+        <div class="hidden md:flex items-center gap-1">
+          <button onclick="navigate('/')" data-route="/" class="nav-link px-3 py-2 rounded-lg text-sm font-medium text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors flex items-center gap-1.5">
+            <i data-lucide="layout-dashboard" class="w-4 h-4"></i> Dashboard
+          </button>
+          <button onclick="navigate('/archive')" data-route="/archive" class="nav-link px-3 py-2 rounded-lg text-sm font-medium text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors flex items-center gap-1.5">
+            <i data-lucide="archive" class="w-4 h-4"></i> Lưu trữ
+          </button>
+          <button onclick="navigate('/analytics')" data-route="/analytics" class="nav-link px-3 py-2 rounded-lg text-sm font-medium text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors flex items-center gap-1.5">
+            <i data-lucide="bar-chart-2" class="w-4 h-4"></i> Thống kê
+          </button>
+          <button onclick="navigate('/trash')" data-route="/trash" class="nav-link px-3 py-2 rounded-lg text-sm font-medium text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors flex items-center gap-1.5">
+            <i data-lucide="trash-2" class="w-4 h-4"></i> Thùng rác
+          </button>
+          <button onclick="navigate('/settings')" data-route="/settings" class="nav-link px-3 py-2 rounded-lg text-sm font-medium text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors flex items-center gap-1.5">
+            <i data-lucide="settings" class="w-4 h-4"></i> Cài đặt
+          </button>
+        </div>
+
+        <!-- Right side actions -->
+        <div class="flex items-center gap-2">
+          <!-- Notification bell -->
+          <button onclick="navigate('/notifications')" class="relative p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors">
+            <i data-lucide="bell" class="w-5 h-5 text-gray-600 dark:text-slate-300"></i>
+            <span id="notif-badge" class="hidden absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold leading-none">0</span>
+          </button>
+
+          <!-- Theme toggle -->
+          <button onclick="toggleTheme()" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors">
+            <i data-lucide="sun" class="w-5 h-5 text-gray-600 dark:text-slate-300 dark-hidden"></i>
+            <i data-lucide="moon" class="w-5 h-5 text-gray-600 dark:text-slate-300 light-hidden hidden"></i>
+          </button>
+
+          <!-- Account menu -->
+          <button onclick="toggleAccountMenu()" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors">
+            <i data-lucide="user" class="w-5 h-5 text-gray-600 dark:text-slate-300"></i>
+          </button>
+
+          <!-- Mobile menu -->
+          <button onclick="toggleMobileMenu()" class="md:hidden p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors">
+            <i data-lucide="menu" class="w-5 h-5 text-gray-600 dark:text-slate-300"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Account dropdown -->
+    <div id="account-menu" class="hidden absolute right-4 top-14 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl shadow-xl w-48 z-50 overflow-hidden">
+      <div class="px-4 py-3 border-b border-gray-100 dark:border-slate-700">
+        <p class="text-xs text-gray-500 dark:text-slate-400">Đăng nhập với</p>
+        <p id="user-email-display" class="text-sm font-medium truncate"></p>
+      </div>
+      <button onclick="navigate('/account')" class="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-slate-700 flex items-center gap-2">
+        <i data-lucide="user-cog" class="w-4 h-4"></i> Tài khoản
+      </button>
+      <button onclick="exportData()" class="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-slate-700 flex items-center gap-2">
+        <i data-lucide="download" class="w-4 h-4"></i> Xuất dữ liệu
+      </button>
+      <button onclick="triggerImport()" class="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-slate-700 flex items-center gap-2">
+        <i data-lucide="upload" class="w-4 h-4"></i> Nhập dữ liệu
+      </button>
+      <div class="border-t border-gray-100 dark:border-slate-700"></div>
+      <button onclick="authLogout()" class="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-2">
+        <i data-lucide="log-out" class="w-4 h-4"></i> Đăng xuất
+      </button>
+    </div>
+
+    <!-- Mobile nav menu -->
+    <div id="mobile-menu" class="hidden md:hidden border-t border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+      <div class="px-4 py-2 space-y-1">
+        <button onclick="navigate('/');toggleMobileMenu()" class="w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium text-gray-700 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center gap-2">
+          <i data-lucide="layout-dashboard" class="w-4 h-4"></i> Dashboard
+        </button>
+        <button onclick="navigate('/archive');toggleMobileMenu()" class="w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium text-gray-700 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center gap-2">
+          <i data-lucide="archive" class="w-4 h-4"></i> Lưu trữ
+        </button>
+        <button onclick="navigate('/analytics');toggleMobileMenu()" class="w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium text-gray-700 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center gap-2">
+          <i data-lucide="bar-chart-2" class="w-4 h-4"></i> Thống kê
+        </button>
+        <button onclick="navigate('/trash');toggleMobileMenu()" class="w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium text-gray-700 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center gap-2">
+          <i data-lucide="trash-2" class="w-4 h-4"></i> Thùng rác
+        </button>
+        <button onclick="navigate('/settings');toggleMobileMenu()" class="w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium text-gray-700 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center gap-2">
+          <i data-lucide="settings" class="w-4 h-4"></i> Cài đặt
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Pages Container -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 py-6">
+
+    <!-- Dashboard Page -->
+    <div id="page-dashboard" class="page active">
+      <!-- Stats Cards -->
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div class="stat-card bg-red-50 dark:bg-red-900/20 rounded-xl p-4 border border-red-100 dark:border-red-900/40 cursor-pointer" onclick="filterByLevel('overdue')">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-medium text-red-600 dark:text-red-400 uppercase tracking-wide">Quá hạn</span>
+            <i data-lucide="alert-circle" class="w-4 h-4 text-red-500"></i>
+          </div>
+          <p id="stat-overdue" class="text-3xl font-bold text-red-700 dark:text-red-300">0</p>
+        </div>
+        <div class="stat-card bg-orange-50 dark:bg-orange-900/20 rounded-xl p-4 border border-orange-100 dark:border-orange-900/40 cursor-pointer" onclick="filterByLevel('urgent')">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-medium text-orange-600 dark:text-orange-400 uppercase tracking-wide">Khẩn cấp</span>
+            <i data-lucide="clock" class="w-4 h-4 text-orange-500"></i>
+          </div>
+          <p id="stat-urgent" class="text-3xl font-bold text-orange-700 dark:text-orange-300">0</p>
+        </div>
+        <div class="stat-card bg-yellow-50 dark:bg-yellow-900/20 rounded-xl p-4 border border-yellow-100 dark:border-yellow-900/40 cursor-pointer" onclick="filterByLevel('warning')">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-medium text-yellow-600 dark:text-yellow-400 uppercase tracking-wide">Cảnh báo</span>
+            <i data-lucide="triangle-alert" class="w-4 h-4 text-yellow-500"></i>
+          </div>
+          <p id="stat-warning" class="text-3xl font-bold text-yellow-700 dark:text-yellow-300">0</p>
+        </div>
+        <div class="stat-card bg-green-50 dark:bg-green-900/20 rounded-xl p-4 border border-green-100 dark:border-green-900/40 cursor-pointer" onclick="filterByLevel('safe')">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-medium text-green-600 dark:text-green-400 uppercase tracking-wide">An toàn</span>
+            <i data-lucide="check-circle" class="w-4 h-4 text-green-500"></i>
+          </div>
+          <p id="stat-safe" class="text-3xl font-bold text-green-700 dark:text-green-300">0</p>
+        </div>
+      </div>
+
+      <!-- Toolbar -->
+      <div class="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 p-4 mb-4">
+        <div class="flex flex-col sm:flex-row gap-3">
+          <div class="flex-1 relative">
+            <i data-lucide="search" class="absolute left-3 top-2.5 w-4 h-4 text-gray-400"></i>
+            <input id="search-input" type="search" placeholder="Tìm kiếm tên, khách hàng..."
+              class="w-full pl-9 pr-4 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-700 dark:text-white outline-none"
+              oninput="renderTable()" />
+          </div>
+          <div class="flex gap-2">
+            <select id="filter-type" onchange="renderTable()"
+              class="text-sm border border-gray-300 dark:border-slate-600 rounded-lg px-3 py-2 dark:bg-slate-700 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none">
+              <option value="">Tất cả loại</option>
+              <option value="domain">Domain</option>
+              <option value="hosting">Hosting</option>
+              <option value="ssl">SSL</option>
+              <option value="email">Email</option>
+              <option value="storage">Storage</option>
+              <option value="other">Other</option>
+            </select>
+            <select id="filter-sort" onchange="renderTable()"
+              class="text-sm border border-gray-300 dark:border-slate-600 rounded-lg px-3 py-2 dark:bg-slate-700 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none">
+              <option value="expiry_asc">Hết hạn ↑</option>
+              <option value="expiry_desc">Hết hạn ↓</option>
+              <option value="name_asc">Tên A-Z</option>
+              <option value="cost_desc">Chi phí ↓</option>
+            </select>
+            <button onclick="openRenewalModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5 transition-colors whitespace-nowrap">
+              <i data-lucide="plus" class="w-4 h-4"></i>
+              <span class="hidden sm:inline">Thêm mới</span>
+            </button>
+          </div>
+        </div>
+        <!-- Active level filter badge -->
+        <div id="level-filter-bar" class="hidden mt-3 flex items-center gap-2">
+          <span class="text-xs text-gray-500">Lọc:</span>
+          <span id="level-filter-label" class="text-xs font-medium px-2 py-1 rounded-full bg-blue-100 text-blue-700"></span>
+          <button onclick="clearLevelFilter()" class="text-xs text-gray-400 hover:text-gray-600">✕ Xóa lọc</button>
+        </div>
+      </div>
+
+      <!-- Table -->
+      <div class="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="data-table" id="renewals-table">
+            <thead>
+              <tr>
+                <th>Tên dịch vụ</th>
+                <th class="hide-mobile">Loại</th>
+                <th class="hide-mobile">Khách hàng</th>
+                <th>Hết hạn</th>
+                <th>Trạng thái</th>
+                <th class="hide-mobile">Chi phí</th>
+                <th class="text-right">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody id="renewals-tbody">
+              <tr><td colspan="7" class="text-center py-12 text-gray-400">
+                <div class="spinner mx-auto mb-2"></div>
+                <p class="text-sm">Đang tải...</p>
+              </td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div id="table-footer" class="px-4 py-3 border-t border-gray-100 dark:border-slate-700 text-xs text-gray-500 dark:text-slate-400"></div>
+      </div>
+    </div>
+
+    <!-- Archive Page -->
+    <div id="page-archive" class="page">
+      <div class="mb-6">
+        <h2 class="text-xl font-bold">Dịch vụ đã lưu trữ</h2>
+        <p class="text-sm text-gray-500 mt-1">Các dịch vụ không còn hoạt động nhưng muốn giữ lại lịch sử</p>
+      </div>
+      <div class="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Tên dịch vụ</th>
+                <th class="hide-mobile">Loại</th>
+                <th class="hide-mobile">Khách hàng</th>
+                <th>Hết hạn</th>
+                <th class="hide-mobile">Ngày lưu trữ</th>
+                <th class="text-right">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody id="archive-tbody">
+              <tr><td colspan="6" class="text-center py-12 text-gray-400 text-sm">Đang tải...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Analytics Page -->
+    <div id="page-analytics" class="page">
+      <div class="mb-6 flex items-center justify-between">
+        <h2 class="text-xl font-bold">Thống kê chi phí</h2>
+        <div class="flex gap-2">
+          <select id="analytics-view" onchange="loadAnalytics()" class="text-sm border border-gray-300 dark:border-slate-600 rounded-lg px-3 py-2 dark:bg-slate-700 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none">
+            <option value="month">Theo tháng</option>
+            <option value="year">Theo năm</option>
+            <option value="customer">Theo khách hàng</option>
+          </select>
+          <select id="analytics-year" onchange="loadAnalytics()" class="text-sm border border-gray-300 dark:border-slate-600 rounded-lg px-3 py-2 dark:bg-slate-700 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none">
+          </select>
+          <select id="analytics-month" onchange="loadAnalytics()" class="text-sm border border-gray-300 dark:border-slate-600 rounded-lg px-3 py-2 dark:bg-slate-700 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none">
+          </select>
+        </div>
+      </div>
+
+      <!-- Summary cards -->
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 p-4">
+          <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Tổng chi phí</p>
+          <p id="analytics-total-cost" class="text-2xl font-bold text-blue-600">0đ</p>
+        </div>
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 p-4">
+          <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Số dịch vụ</p>
+          <p id="analytics-count" class="text-2xl font-bold">0</p>
+        </div>
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 p-4">
+          <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Trung bình</p>
+          <p id="analytics-avg" class="text-2xl font-bold">0đ</p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 p-4">
+          <canvas id="analytics-chart" height="200"></canvas>
+        </div>
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 overflow-hidden">
+          <div class="overflow-x-auto">
+            <table class="data-table text-sm" id="analytics-table">
+              <thead><tr><th>Dịch vụ</th><th>Loại</th><th class="text-right">Chi phí</th></tr></thead>
+              <tbody id="analytics-tbody"><tr><td colspan="3" class="text-center py-8 text-gray-400 text-sm">Chọn kỳ để xem</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Trash Page -->
+    <div id="page-trash" class="page">
+      <div class="mb-6 flex items-center justify-between">
+        <div>
+          <h2 class="text-xl font-bold">Thùng rác</h2>
+          <p class="text-sm text-gray-500 mt-1">Tự động xóa vĩnh viễn sau 45 ngày</p>
+        </div>
+        <button onclick="emptyTrash()" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5 transition-colors">
+          <i data-lucide="trash-2" class="w-4 h-4"></i> Xóa tất cả
+        </button>
+      </div>
+      <div class="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Tên dịch vụ</th>
+                <th class="hide-mobile">Loại</th>
+                <th class="hide-mobile">Hết hạn</th>
+                <th>Ngày xóa</th>
+                <th class="text-right">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody id="trash-tbody">
+              <tr><td colspan="5" class="text-center py-12 text-gray-400 text-sm">Đang tải...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Notifications Page -->
+    <div id="page-notifications" class="page">
+      <div class="mb-6 flex items-center justify-between">
+        <h2 class="text-xl font-bold">Thông báo</h2>
+        <div class="flex gap-2">
+          <button onclick="markAllRead()" class="text-sm border border-gray-300 dark:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-700 px-3 py-2 rounded-lg transition-colors">
+            Đánh dấu đã đọc
+          </button>
+          <button onclick="clearNotifications()" class="text-sm text-red-600 border border-red-200 hover:bg-red-50 dark:hover:bg-red-900/20 px-3 py-2 rounded-lg transition-colors">
+            Xóa đã đọc
+          </button>
+        </div>
+      </div>
+      <div id="notifications-list" class="space-y-3">
+        <p class="text-center py-12 text-gray-400 text-sm">Đang tải...</p>
+      </div>
+    </div>
+
+    <!-- Settings Page -->
+    <div id="page-settings" class="page">
+      <h2 class="text-xl font-bold mb-6">Cài đặt</h2>
+      <div class="space-y-6 max-w-2xl">
+
+        <!-- Web Push -->
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 p-6">
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
+                <i data-lucide="bell" class="w-5 h-5 text-blue-600"></i>
+              </div>
+              <div>
+                <h3 class="font-semibold">Web Push</h3>
+                <p class="text-xs text-gray-500">Nhận thông báo trên trình duyệt</p>
+              </div>
+            </div>
+            <sl-switch id="push-enabled" onsl-change="savePushSettings()"></sl-switch>
+          </div>
+          <button onclick="testPushNotification()" class="text-sm bg-blue-50 dark:bg-blue-900/20 text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/40 px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
+            <i data-lucide="send" class="w-4 h-4"></i> Gửi thử
+          </button>
+        </div>
+
+        <!-- Telegram -->
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 p-6">
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 bg-sky-100 dark:bg-sky-900/30 rounded-lg flex items-center justify-center">
+                <i data-lucide="message-circle" class="w-5 h-5 text-sky-600"></i>
+              </div>
+              <div>
+                <h3 class="font-semibold">Telegram Bot</h3>
+                <p class="text-xs text-gray-500">Nhận thông báo qua Telegram</p>
+              </div>
+            </div>
+            <sl-switch id="telegram-enabled" onsl-change="saveTelegramSettings()"></sl-switch>
+          </div>
+          <div class="space-y-3">
+            <div>
+              <label class="text-xs font-medium text-gray-600 dark:text-slate-400 mb-1 block">Bot Token</label>
+              <input id="telegram-token" type="password" placeholder="123456789:AABBCCDDeeFFGGHHiijj..."
+                class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none dark:bg-slate-700 dark:text-white" />
+            </div>
+            <div>
+              <label class="text-xs font-medium text-gray-600 dark:text-slate-400 mb-1 block">Chat ID</label>
+              <input id="telegram-chat-id" type="text" placeholder="-100123456789"
+                class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none dark:bg-slate-700 dark:text-white" />
+            </div>
+            <div class="flex gap-2">
+              <button onclick="saveTelegramSettings()" class="text-sm bg-sky-50 dark:bg-sky-900/20 text-sky-600 hover:bg-sky-100 dark:hover:bg-sky-900/40 px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
+                <i data-lucide="save" class="w-4 h-4"></i> Lưu
+              </button>
+              <button onclick="testTelegram()" class="text-sm bg-gray-50 dark:bg-slate-700 text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-600 px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
+                <i data-lucide="send" class="w-4 h-4"></i> Test
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cron Trigger -->
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 p-6">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="w-10 h-10 bg-purple-100 dark:bg-purple-900/30 rounded-lg flex items-center justify-center">
+              <i data-lucide="timer" class="w-5 h-5 text-purple-600"></i>
+            </div>
+            <div>
+              <h3 class="font-semibold">Cron Job</h3>
+              <p class="text-xs text-gray-500">Kiểm tra gia hạn hàng ngày</p>
+            </div>
+          </div>
+          <p class="text-sm text-gray-600 dark:text-slate-400 mb-4">
+            Endpoint cron: <code class="bg-gray-100 dark:bg-slate-700 px-1.5 py-0.5 rounded text-xs font-mono" id="cron-endpoint-display">/api/cron/check-renewals</code>
+          </p>
+          <div class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 text-xs text-blue-700 dark:text-blue-300 mb-4">
+            <p class="font-medium mb-1">⚙️ Cloudflare Pages không hỗ trợ cron native.</p>
+            <p>Dùng một trong các cách sau:</p>
+            <ul class="mt-1 space-y-0.5 list-disc list-inside">
+              <li>Cloudflare Worker Cron Trigger (xem README)</li>
+              <li>GitHub Actions schedule</li>
+              <li>cron-job.org (miễn phí)</li>
+            </ul>
+          </div>
+          <button onclick="triggerCronNow()" class="text-sm bg-purple-50 dark:bg-purple-900/20 text-purple-600 hover:bg-purple-100 dark:hover:bg-purple-900/40 px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
+            <i data-lucide="play" class="w-4 h-4"></i> Chạy ngay
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Account Page -->
+    <div id="page-account" class="page">
+      <h2 class="text-xl font-bold mb-6">Tài khoản</h2>
+      <div class="space-y-6 max-w-md">
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 p-6">
+          <h3 class="font-semibold mb-4 flex items-center gap-2"><i data-lucide="mail" class="w-4 h-4"></i> Đổi Email</h3>
+          <div class="space-y-3">
+            <input id="new-email-input" type="email" placeholder="Email mới"
+              class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none dark:bg-slate-700 dark:text-white" />
+            <button onclick="changeEmail()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">Cập nhật email</button>
+          </div>
+        </div>
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 p-6">
+          <h3 class="font-semibold mb-4 flex items-center gap-2"><i data-lucide="lock" class="w-4 h-4"></i> Đổi Mật khẩu</h3>
+          <div class="space-y-3">
+            <input id="new-password-input" type="password" placeholder="Mật khẩu mới (ít nhất 6 ký tự)"
+              class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none dark:bg-slate-700 dark:text-white" />
+            <button onclick="changePassword()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">Cập nhật mật khẩu</button>
+          </div>
+        </div>
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 p-6">
+          <h3 class="font-semibold mb-4 flex items-center gap-2"><i data-lucide="activity" class="w-4 h-4"></i> Lịch sử đăng nhập</h3>
+          <div id="login-log-list" class="space-y-2">
+            <p class="text-sm text-gray-400">Đang tải...</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Renewal Modal -->
+<div id="renewal-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" onclick="if(event.target===this)closeRenewalModal()">
+  <div class="absolute inset-0 bg-black/50 backdrop-blur-sm"></div>
+  <div class="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+    <div class="sticky top-0 bg-white dark:bg-slate-800 border-b border-gray-100 dark:border-slate-700 px-6 py-4 flex items-center justify-between rounded-t-2xl z-10">
+      <h3 id="modal-title" class="font-semibold text-lg">Thêm dịch vụ mới</h3>
+      <button onclick="closeRenewalModal()" class="text-gray-400 hover:text-gray-600 p-1">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+    </div>
+    <div class="p-6 space-y-4">
+      <input type="hidden" id="modal-id" />
+      <div class="grid grid-cols-2 gap-4">
+        <div class="col-span-2">
+          <label class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Tên dịch vụ *</label>
+          <input id="modal-name" type="text" placeholder="ví dụ: example.com"
+            class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none dark:bg-slate-700 dark:text-white" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Loại *</label>
+          <select id="modal-type" class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none dark:bg-slate-700 dark:text-white">
+            <option value="domain">Domain</option>
+            <option value="hosting">Hosting</option>
+            <option value="ssl">SSL</option>
+            <option value="email">Email</option>
+            <option value="storage">Storage</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Hết hạn *</label>
+          <input id="modal-expiry" type="date"
+            class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none dark:bg-slate-700 dark:text-white" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Khách hàng</label>
+          <input id="modal-customer" type="text" placeholder="Tên khách hàng"
+            class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none dark:bg-slate-700 dark:text-white" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Nhà cung cấp</label>
+          <input id="modal-provider" type="text" placeholder="GoDaddy, Namecheap..."
+            class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none dark:bg-slate-700 dark:text-white" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Chi phí (VNĐ)</label>
+          <input id="modal-cost" type="number" placeholder="300000"
+            class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none dark:bg-slate-700 dark:text-white" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Chu kỳ (tháng)</label>
+          <input id="modal-period" type="number" value="12" min="1" max="120"
+            class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none dark:bg-slate-700 dark:text-white" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Ngày mua ban đầu</label>
+          <input id="modal-purchase-date" type="date"
+            class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none dark:bg-slate-700 dark:text-white" />
+        </div>
+        <div class="col-span-2">
+          <label class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Email đăng ký</label>
+          <input id="modal-reg-email" type="email" placeholder="account@provider.com"
+            class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none dark:bg-slate-700 dark:text-white" />
+        </div>
+        <div class="col-span-2">
+          <label class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Ghi chú</label>
+          <textarea id="modal-notes" rows="2" placeholder="Ghi chú thêm..."
+            class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none dark:bg-slate-700 dark:text-white resize-none"></textarea>
+        </div>
+      </div>
+    </div>
+    <div class="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-gray-100 dark:border-slate-700 px-6 py-4 flex gap-3 justify-end rounded-b-2xl">
+      <button onclick="closeRenewalModal()" class="px-4 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors">Hủy</button>
+      <button onclick="saveRenewal()" id="btn-save-renewal" class="px-6 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2">
+        <span id="btn-save-text">Lưu</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Renew Modal (record renewal action) -->
+<div id="renew-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" onclick="if(event.target===this)closeRenewModal()">
+  <div class="absolute inset-0 bg-black/50 backdrop-blur-sm"></div>
+  <div class="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md">
+    <div class="px-6 py-4 border-b border-gray-100 dark:border-slate-700">
+      <h3 class="font-semibold text-lg">Gia hạn dịch vụ</h3>
+    </div>
+    <div class="p-6 space-y-4">
+      <input type="hidden" id="renew-id" />
+      <div>
+        <p class="text-sm text-gray-600 dark:text-slate-400 mb-1">Dịch vụ</p>
+        <p id="renew-name" class="font-medium"></p>
+      </div>
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Hạn hiện tại</label>
+          <input id="renew-old-expiry" type="date" readonly
+            class="w-full px-3 py-2 text-sm border border-gray-200 dark:border-slate-600 rounded-lg bg-gray-50 dark:bg-slate-700/50 dark:text-slate-400" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Hạn mới *</label>
+          <input id="renew-new-expiry" type="date"
+            class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none dark:bg-slate-700 dark:text-white" />
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Chi phí gia hạn</label>
+          <input id="renew-cost" type="number" placeholder="300000"
+            class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none dark:bg-slate-700 dark:text-white" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Chu kỳ (tháng)</label>
+          <input id="renew-period" type="number" value="12"
+            class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none dark:bg-slate-700 dark:text-white"
+            oninput="autoCalcNewExpiry()" />
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Ghi chú</label>
+        <input id="renew-notes" type="text" placeholder="Ghi chú..."
+          class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none dark:bg-slate-700 dark:text-white" />
+      </div>
+    </div>
+    <div class="px-6 py-4 border-t border-gray-100 dark:border-slate-700 flex gap-3 justify-end">
+      <button onclick="closeRenewModal()" class="px-4 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors">Hủy</button>
+      <button onclick="confirmRenew()" class="px-6 py-2 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors">
+        Xác nhận gia hạn
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Detail Modal (view renewal history) -->
+<div id="detail-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" onclick="if(event.target===this)closeDetailModal()">
+  <div class="absolute inset-0 bg-black/50 backdrop-blur-sm"></div>
+  <div class="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+    <div class="px-6 py-4 border-b border-gray-100 dark:border-slate-700 flex items-center justify-between">
+      <h3 id="detail-title" class="font-semibold text-lg"></h3>
+      <button onclick="closeDetailModal()" class="text-gray-400 hover:text-gray-600 p-1">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+    </div>
+    <div class="overflow-y-auto flex-1 p-6">
+      <div id="detail-info" class="grid grid-cols-2 gap-4 mb-6 text-sm"></div>
+      <h4 class="font-medium text-gray-700 dark:text-slate-300 mb-3 flex items-center gap-2">
+        <i data-lucide="history" class="w-4 h-4"></i> Lịch sử gia hạn
+      </h4>
+      <div class="overflow-x-auto">
+        <table class="data-table text-sm">
+          <thead><tr><th>Ngày GH</th><th>Hạn cũ</th><th>Hạn mới</th><th>Chi phí</th><th>Ghi chú</th></tr></thead>
+          <tbody id="detail-history-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="px-6 py-4 border-t border-gray-100 dark:border-slate-700 flex gap-2 justify-end">
+      <button onclick="openRenewModal(currentDetailId)" class="px-4 py-2 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2">
+        <i data-lucide="refresh-cw" class="w-4 h-4"></i> Gia hạn
+      </button>
+      <button onclick="closeDetailModal()" class="px-4 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors">Đóng</button>
+    </div>
+  </div>
+</div>
+
+<!-- Hidden import input -->
+<input type="file" id="import-input" accept=".json" class="hidden" onchange="importData(event)" />
+
+<!-- Custom Styles -->
+<link rel="stylesheet" href="/static/style.css" />
+
+<!-- Main App Script -->
+<script type="module" src="/static/main.js"></script>
+
+</body>
+</html>
