@@ -256,7 +256,9 @@ window.authLogout = async function() {
   authToken = null
   currentUser = null
   allRenewals = []
-  document.getElementById('app-shell').classList.add('hidden')
+  const shell = document.getElementById('app-shell')
+  shell.classList.remove('active')
+  shell.classList.add('hidden')
   document.getElementById('page-auth').classList.add('active')
   document.getElementById('account-menu').classList.add('hidden')
   if (typeof lucide !== 'undefined') lucide.createIcons()
@@ -276,13 +278,21 @@ window.togglePasswordVisibility = function(id) {
 }
 
 function onAuthSuccess() {
+  // Always hide loading overlay first
+  document.getElementById('loading-overlay').classList.add('hidden')
+  // Hide auth page
   document.getElementById('page-auth').classList.remove('active')
-  document.getElementById('app-shell').classList.remove('hidden')
-  document.getElementById('user-email-display').textContent = currentUser?.email || ''
+  // Show app shell
+  const shell = document.getElementById('app-shell')
+  shell.classList.remove('hidden')
+  shell.classList.add('active')
+  // Set user info
+  const emailEl = document.getElementById('user-email-display')
+  if (emailEl) emailEl.textContent = currentUser?.email || ''
+  if (typeof lucide !== 'undefined') lucide.createIcons()
   loadDashboard()
   loadNotificationBadge()
   navigate(location.pathname === '/' || !routes[location.pathname] ? '/' : location.pathname)
-  // Register push subscription
   registerPushNotification()
 }
 
@@ -296,14 +306,16 @@ window.authSendOtp = function() {
 // ============================================================
 async function restoreSession() {
   try {
-    const { data: { session } } = await supabase.auth.getSession()
-    if (session) {
+    const { data: { session }, error } = await supabase.auth.getSession()
+    if (session && !error) {
       authToken = session.access_token
       currentUser = session.user
       onAuthSuccess()
       return
     }
-  } catch {}
+  } catch (e) {
+    console.warn('[auth] restoreSession error:', e)
+  }
   showAuthPage()
 }
 
@@ -1283,42 +1295,57 @@ function addKnownDevice(device) {
 async function init() {
   initTheme()
 
-  // Load config first
-  await loadConfig()
+  // Safety fallback: always hide loading after 5s no matter what
+  const safetyTimer = setTimeout(() => {
+    const overlay = document.getElementById('loading-overlay')
+    if (overlay && !overlay.classList.contains('hidden')) {
+      console.warn('[init] Safety timeout — forcing loading overlay hidden')
+      overlay.classList.add('hidden')
+      document.getElementById('page-auth').classList.add('active')
+      if (typeof lucide !== 'undefined') lucide.createIcons()
+    }
+  }, 5000)
 
-  // Init Supabase
-  if (!initSupabase()) {
-    showToast('Lỗi cấu hình: Không tìm thấy Supabase config', 'error')
+  try {
+    // Load config from /api/config
+    await loadConfig()
+
+    // Init Supabase client
+    if (!initSupabase()) {
+      clearTimeout(safetyTimer)
+      showToast('Lỗi cấu hình: Không tìm thấy Supabase config. Kiểm tra biến môi trường.', 'error')
+      document.getElementById('loading-overlay').classList.add('hidden')
+      document.getElementById('page-auth').classList.add('active')
+      if (typeof lucide !== 'undefined') lucide.createIcons()
+      return
+    }
+
+    // Init Lucide icons
+    if (typeof lucide !== 'undefined') lucide.createIcons()
+
+    // Close menus on outside click
+    document.addEventListener('click', (e) => {
+      const accountMenu = document.getElementById('account-menu')
+      const accountBtn = e.target.closest('[onclick="toggleAccountMenu()"]')
+      if (accountMenu && !accountBtn && !accountMenu.contains(e.target)) {
+        accountMenu.classList.add('hidden')
+      }
+    })
+
+    // Restore session (shows auth page or app shell)
+    await restoreSession()
+
+  } catch (err) {
+    console.error('[init] Fatal error:', err)
     document.getElementById('loading-overlay').classList.add('hidden')
     document.getElementById('page-auth').classList.add('active')
-    return
-  }
-
-  // Init Lucide icons
-  if (typeof lucide !== 'undefined') lucide.createIcons()
-
-  // Close menus on outside click
-  document.addEventListener('click', (e) => {
-    const accountMenu = document.getElementById('account-menu')
-    const accountBtn = e.target.closest('[onclick="toggleAccountMenu()"]')
-    if (!accountBtn && !accountMenu.contains(e.target)) {
-      accountMenu.classList.add('hidden')
-    }
-    const mobileMenu = document.getElementById('mobile-menu')
-    const mobileBtn = e.target.closest('[onclick="toggleMobileMenu()"]')
-    if (!mobileBtn && !mobileMenu.contains(e.target) && !mobileMenu.classList.contains('hidden')) {
-      // Let the button handle it
-    }
-  })
-
-  // Restore session
-  await restoreSession()
-
-  // Hide loading
-  setTimeout(() => {
+    if (typeof lucide !== 'undefined') lucide.createIcons()
+  } finally {
+    clearTimeout(safetyTimer)
+    // Guarantee loading is hidden
     document.getElementById('loading-overlay').classList.add('hidden')
     if (typeof lucide !== 'undefined') lucide.createIcons()
-  }, 500)
+  }
 }
 
 init()

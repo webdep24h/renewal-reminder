@@ -53,8 +53,14 @@
     html.dark body { background-color: #0f172a; color: #f1f5f9; }
 
     /* Page transitions */
-    .page { display: none; }
-    .page.active { display: block; }
+    .page { display: none !important; }
+    .page.active { display: block !important; }
+    /* Auth page needs flex layout */
+    #page-auth.active { display: flex !important; }
+    /* App shell needs flex layout */
+    #app-shell.active { display: flex !important; flex-direction: column; min-height: 100vh; }
+    /* Loading overlay: hidden class must override flex */
+    #loading-overlay.hidden { display: none !important; }
 
     /* Loading spinner */
     .spinner {
@@ -214,7 +220,7 @@
 </div>
 
 <!-- Main App Shell -->
-<div id="app-shell" class="hidden">
+<div id="app-shell" class="page">
   <!-- Navbar -->
   <nav id="navbar" class="bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 shadow-sm">
     <div class="max-w-7xl mx-auto px-4 sm:px-6">
