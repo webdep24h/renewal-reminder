@@ -1,0 +1,15 @@
+name: Daily Renewal Check
+on:
+  schedule:
+    - cron: '0 1 * * *'  # 8:00 AM UTC+7
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger renewal check
+        run: |
+          curl -X GET \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.APP_URL }}/api/cron/check-renewals"
