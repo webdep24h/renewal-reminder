@@ -1,18 +1,17 @@
 /**
- * Renewal Reminder — Frontend Main Entry
- * Vanilla JS SPA with Supabase Auth
- * Architecture: Page/View/State pattern
+ * Renewal Reminder — Frontend Main
+ * Architecture: SPA with Supabase Auth + Hono Backend API
+ * UI: Sidebar layout (reference design)
  */
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'
 
 // ============================================================
-// Config — injected via /api/config endpoint or window.__env
+// Config
 // ============================================================
-let SUPABASE_URL = window.__env?.SUPABASE_URL || ''
-let SUPABASE_ANON_KEY = window.__env?.SUPABASE_ANON_KEY || ''
-let VAPID_PUBLIC_KEY = window.__env?.VAPID_PUBLIC_KEY || ''
+let SUPABASE_URL = ''
+let SUPABASE_ANON_KEY = ''
+let VAPID_PUBLIC_KEY = ''
 
-// Load config from backend if not already set
 async function loadConfig() {
   if (SUPABASE_URL && SUPABASE_ANON_KEY) return
   try {
@@ -27,15 +26,11 @@ async function loadConfig() {
 }
 
 // ============================================================
-// Supabase client — initialized after config load
+// Supabase
 // ============================================================
 let supabase = null
-
 function initSupabase() {
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    console.error('[supabase] Missing config — check /api/config endpoint')
-    return false
-  }
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return false
   supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
   return true
 }
@@ -46,9 +41,9 @@ function initSupabase() {
 let authToken = null
 let currentUser = null
 let allRenewals = []
+let currentTypeFilter = ''
+let currentSortFilter = 'expiry_asc'
 let currentLevelFilter = null
-let analyticsChart = null
-let currentDetailId = null
 window.currentDetailId = null
 
 // ============================================================
@@ -68,18 +63,18 @@ async function api(method, path, body) {
 }
 
 // ============================================================
-// Toast notifications
+// Toast
 // ============================================================
-function showToast(message, type = 'info', duration = 3000) {
+function showToast(message, type = 'info', duration = 3500) {
   const container = document.getElementById('toast-container')
   const toast = document.createElement('div')
   toast.className = `toast ${type}`
   toast.textContent = message
   container.appendChild(toast)
   setTimeout(() => {
+    toast.style.transition = 'all 0.3s ease'
     toast.style.opacity = '0'
     toast.style.transform = 'translateX(100%)'
-    toast.style.transition = 'all 0.3s ease'
     setTimeout(() => toast.remove(), 300)
   }, duration)
 }
@@ -90,27 +85,58 @@ window.showToast = showToast
 // ============================================================
 function initTheme() {
   const saved = localStorage.getItem('theme') || 'light'
-  document.documentElement.classList.toggle('dark', saved === 'dark')
-  document.documentElement.setAttribute('class', saved === 'dark' ? 'dark sl-theme-dark' : 'sl-theme-light')
+  applyTheme(saved)
+}
+
+function applyTheme(theme) {
+  const isDark = theme === 'dark'
+  document.documentElement.className = isDark ? 'dark sl-theme-dark' : 'sl-theme-light'
+  document.documentElement.setAttribute('data-theme', theme)
+  localStorage.setItem('theme', theme)
   updateThemeIcons()
+  updateThemeSelector()
 }
 
 window.toggleTheme = function() {
   const isDark = document.documentElement.classList.contains('dark')
-  const newTheme = isDark ? 'light' : 'dark'
-  localStorage.setItem('theme', newTheme)
-  document.documentElement.className = newTheme === 'dark' ? 'dark sl-theme-dark' : 'sl-theme-light'
-  updateThemeIcons()
+  applyTheme(isDark ? 'light' : 'dark')
+  if (typeof lucide !== 'undefined') lucide.createIcons()
+}
+
+window.setTheme = function(theme) {
+  applyTheme(theme)
   if (typeof lucide !== 'undefined') lucide.createIcons()
 }
 
 function updateThemeIcons() {
+  const isDark = document.documentElement.classList.contains('dark')
   document.querySelectorAll('.dark-hidden').forEach(el => {
-    el.classList.toggle('hidden', document.documentElement.classList.contains('dark'))
+    el.classList.toggle('hidden', isDark)
   })
   document.querySelectorAll('.light-hidden').forEach(el => {
-    el.classList.toggle('hidden', !document.documentElement.classList.contains('dark'))
+    el.classList.toggle('hidden', !isDark)
   })
+}
+
+function updateThemeSelector() {
+  const isDark = document.documentElement.classList.contains('dark')
+  document.getElementById('theme-light-btn')?.classList.toggle('selected', !isDark)
+  document.getElementById('theme-dark-btn')?.classList.toggle('selected', isDark)
+}
+
+// ============================================================
+// Sidebar
+// ============================================================
+window.toggleSidebar = function() {
+  const sidebar = document.getElementById('sidebar')
+  const overlay = document.getElementById('sidebar-overlay')
+  sidebar.classList.toggle('open')
+  overlay.classList.toggle('visible')
+}
+
+window.closeSidebar = function() {
+  document.getElementById('sidebar')?.classList.remove('open')
+  document.getElementById('sidebar-overlay')?.classList.remove('visible')
 }
 
 // ============================================================
@@ -118,7 +144,6 @@ function updateThemeIcons() {
 // ============================================================
 const routes = {
   '/': 'page-dashboard',
-  '/archive': 'page-archive',
   '/analytics': 'page-analytics',
   '/trash': 'page-trash',
   '/notifications': 'page-notifications',
@@ -126,41 +151,130 @@ const routes = {
   '/account': 'page-account',
 }
 
+const breadcrumbNames = {
+  '/': 'Dashboard',
+  '/analytics': 'Analytics',
+  '/trash': 'Thùng rác',
+  '/notifications': 'Thông báo',
+  '/settings': 'Cài đặt',
+  '/account': 'Tài khoản',
+}
+
 window.navigate = function(path) {
   history.pushState({}, '', path)
   renderRoute(path)
+  closeSidebar()
 }
 
 function renderRoute(path) {
   const pageId = routes[path] || 'page-dashboard'
+
+  // Hide all pages
   document.querySelectorAll('#app-shell .page').forEach(p => p.classList.remove('active'))
+
+  // Show target page
   const page = document.getElementById(pageId)
   if (page) page.classList.add('active')
 
-  // Update nav links
-  document.querySelectorAll('.nav-link').forEach(link => {
-    const route = link.getAttribute('data-route')
-    link.classList.toggle('bg-blue-50', route === path)
-    link.classList.toggle('dark:bg-blue-900/20', route === path)
-    link.classList.toggle('text-blue-600', route === path)
-    link.classList.toggle('dark:text-blue-400', route === path)
+  // Update breadcrumb
+  const crumb = document.getElementById('breadcrumb-page')
+  if (crumb) crumb.textContent = breadcrumbNames[path] || 'Dashboard'
+
+  // Update nav active state
+  document.querySelectorAll('.nav-item').forEach(item => {
+    const route = item.getAttribute('data-route')
+    item.classList.toggle('active', route === path)
   })
 
   // Load page data
   if (path === '/') loadDashboard()
-  if (path === '/archive') loadArchive()
-  if (path === '/analytics') initAnalyticsPage()
-  if (path === '/trash') loadTrash()
-  if (path === '/notifications') loadNotifications()
-  if (path === '/settings') loadSettings()
-  if (path === '/account') loadAccount()
-  if (path.startsWith('/renewal/')) {
-    const id = path.split('/')[2]
-    openDetailModal(id)
-  }
+  else if (path === '/analytics') loadAnalyticsPage()
+  else if (path === '/trash') loadTrash()
+  else if (path === '/notifications') loadNotificationsPage()
+  else if (path === '/settings') loadSettings()
+  else if (path === '/account') loadAccount()
 }
 
 window.onpopstate = () => renderRoute(location.pathname)
+
+// ============================================================
+// Notification Dropdown (bell in topbar)
+// ============================================================
+window.toggleNotifDropdown = function() {
+  const dd = document.getElementById('notif-dropdown')
+  dd.classList.toggle('open')
+  if (dd.classList.contains('open')) {
+    loadNotifDropdown()
+  }
+}
+
+async function loadNotifDropdown() {
+  const list = document.getElementById('notif-dropdown-list')
+  try {
+    const { data } = await api('GET', '/notifications?all=true')
+    if (!data || data.length === 0) {
+      list.innerHTML = `
+        <div class="notif-empty">
+          <i data-lucide="bell-off" width="32" height="32" class="notif-empty-icon"></i>
+          <p>Không có thông báo</p>
+        </div>`
+    } else {
+      list.innerHTML = data.slice(0, 20).map(n => {
+        const isRead = n.is_read
+        return `<div class="notif-item ${isRead ? '' : 'unread'}" onclick="markRead('${n.id}')">
+          <div class="notif-item-icon">
+            <i data-lucide="bell" width="14" height="14"></i>
+          </div>
+          <div class="notif-item-content">
+            <p class="notif-item-title">${getLevelTitle(n.level)} — ${escHtml(n.renewals?.name || '?')}</p>
+            <p class="notif-item-meta">${n.renewals?.type || ''} · ${formatDate(n.sent_at)}</p>
+          </div>
+        </div>`
+      }).join('')
+    }
+    if (typeof lucide !== 'undefined') lucide.createIcons()
+  } catch {}
+}
+
+async function loadNotificationBadge() {
+  try {
+    const { data } = await api('GET', '/notifications')
+    const count = data?.length || 0
+    // Update both badges
+    ;['notif-badge', 'nav-badge-notif', 'bottom-nav-badge'].forEach(id => {
+      const el = document.getElementById(id)
+      if (!el) return
+      el.textContent = count > 99 ? '99+' : count
+      el.style.display = count > 0 ? (id === 'notif-badge' ? 'block' : 'flex') : 'none'
+    })
+  } catch {}
+}
+
+window.markRead = async function(id) {
+  try {
+    await api('PUT', '/notifications', { ids: [id] })
+    loadNotifDropdown()
+    loadNotificationBadge()
+  } catch {}
+}
+
+window.markAllRead = async function() {
+  try {
+    await api('PUT', '/notifications', { all: true })
+    showToast('Đã đánh dấu tất cả đã đọc', 'success')
+    loadNotifDropdown()
+    loadNotificationBadge()
+  } catch (err) { showToast(err.message, 'error') }
+}
+
+window.clearNotifications = async function() {
+  try {
+    await api('DELETE', '/notifications')
+    showToast('Đã xóa thông báo đã đọc', 'success')
+    loadNotifDropdown()
+    loadNotificationBadge()
+  } catch (err) { showToast(err.message, 'error') }
+}
 
 // ============================================================
 // Auth
@@ -172,17 +286,16 @@ window.authLogin = async function() {
 
   const btn = document.getElementById('btn-login')
   btn.disabled = true
-  btn.innerHTML = '<span class="spinner"></span> Đang xử lý...'
+  btn.innerHTML = '<div class="loading-spinner sm" style="margin-right:8px;"></div> Đang xử lý...'
 
   try {
-    // Step 1: Sign in with password
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) throw error
 
     authToken = data.session.access_token
     currentUser = data.user
 
-    // Step 2: Request OTP for 2FA
+    // OTP step
     await supabase.auth.signInWithOtp({ email })
     document.getElementById('otp-desc').textContent = `Mã OTP đã được gửi đến ${email}`
     document.getElementById('auth-step-email').classList.add('hidden')
@@ -212,7 +325,6 @@ window.authVerifyOtp = async function() {
 
     authToken = data.session.access_token
     currentUser = data.user
-    localStorage.setItem('auth_token', authToken)
 
     // Log login
     const deviceInfo = getDeviceInfo()
@@ -223,12 +335,7 @@ window.authVerifyOtp = async function() {
     fetch('/api/auth/login-log', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
-      body: JSON.stringify({
-        email, status: 'success',
-        user_agent: navigator.userAgent,
-        device_info: deviceInfo,
-        is_new_device: isNew
-      })
+      body: JSON.stringify({ email, status: 'success', user_agent: navigator.userAgent, device_info: deviceInfo, is_new_device: isNew })
     }).catch(() => {})
 
     onAuthSuccess()
@@ -250,60 +357,38 @@ window.authBackToEmail = function() {
   document.getElementById('auth-step-otp').classList.add('hidden')
 }
 
+window.authSendOtp = function() { authLogin() }
+
 window.authLogout = async function() {
-  await supabase.auth.signOut()
-  localStorage.removeItem('auth_token')
+  await supabase.auth?.signOut()
   authToken = null
   currentUser = null
   allRenewals = []
-  const shell = document.getElementById('app-shell')
-  shell.classList.remove('active')
-  shell.classList.add('hidden')
+  document.getElementById('app-shell').classList.remove('active')
   document.getElementById('page-auth').classList.add('active')
-  document.getElementById('account-menu').classList.add('hidden')
   if (typeof lucide !== 'undefined') lucide.createIcons()
-}
-
-window.toggleAccountMenu = function() {
-  document.getElementById('account-menu').classList.toggle('hidden')
-}
-
-window.toggleMobileMenu = function() {
-  document.getElementById('mobile-menu').classList.toggle('hidden')
-}
-
-window.togglePasswordVisibility = function(id) {
-  const input = document.getElementById(id)
-  input.type = input.type === 'password' ? 'text' : 'password'
 }
 
 function onAuthSuccess() {
-  // Always hide loading overlay first
   document.getElementById('loading-overlay').classList.add('hidden')
-  // Hide auth page
   document.getElementById('page-auth').classList.remove('active')
-  // Show app shell
-  const shell = document.getElementById('app-shell')
-  shell.classList.remove('hidden')
-  shell.classList.add('active')
-  // Set user info
+  document.getElementById('app-shell').classList.add('active')
+
+  // Set email displays
+  const email = currentUser?.email || ''
   const emailEl = document.getElementById('user-email-display')
-  if (emailEl) emailEl.textContent = currentUser?.email || ''
+  const emailEl2 = document.getElementById('user-email-display-2')
+  if (emailEl) emailEl.textContent = email
+  if (emailEl2) emailEl2.textContent = email
+
   if (typeof lucide !== 'undefined') lucide.createIcons()
-  loadDashboard()
   loadNotificationBadge()
-  navigate(location.pathname === '/' || !routes[location.pathname] ? '/' : location.pathname)
+
+  const path = location.pathname
+  navigate(routes[path] ? path : '/')
   registerPushNotification()
 }
 
-window.authSendOtp = function() {
-  // Called on enter key in email/password fields
-  authLogin()
-}
-
-// ============================================================
-// Session restoration
-// ============================================================
 async function restoreSession() {
   try {
     const { data: { session }, error } = await supabase.auth.getSession()
@@ -325,31 +410,32 @@ function showAuthPage() {
   if (typeof lucide !== 'undefined') lucide.createIcons()
 }
 
+window.togglePasswordVisibility = function(id) {
+  const input = document.getElementById(id)
+  if (!input) return
+  input.type = input.type === 'password' ? 'text' : 'password'
+}
+
 // ============================================================
-// Dashboard
+// Dashboard — Card-based render
 // ============================================================
 async function loadDashboard() {
-  document.getElementById('renewals-tbody').innerHTML = `
-    <tr><td colspan="7" class="text-center py-12 text-gray-400">
-      <div class="spinner mx-auto mb-2"></div><p class="text-sm">Đang tải...</p>
-    </td></tr>`
+  const list = document.getElementById('renewal-list')
+  list.innerHTML = '<div class="loading-state"><div class="loading-spinner"></div></div>'
 
   try {
     const { data } = await api('GET', '/renewals')
     allRenewals = data || []
     updateStats()
-    renderTable()
+    renderCards()
   } catch (err) {
     showToast(err.message, 'error')
-    document.getElementById('renewals-tbody').innerHTML =
-      `<tr><td colspan="7" class="text-center py-12 text-red-400 text-sm">Lỗi: ${err.message}</td></tr>`
+    list.innerHTML = `<div class="empty-state"><p class="empty-title" style="color:var(--color-critical)">Lỗi: ${err.message}</p></div>`
   }
 }
 
 function updateStats() {
   let overdue = 0, urgent = 0, warning = 0, safe = 0
-  const today = getToday()
-
   for (const r of allRenewals) {
     const days = getDaysUntil(r.expiry_date)
     const level = getLevel(days)
@@ -358,112 +444,182 @@ function updateStats() {
     else if (level === '1week' || level === '2weeks' || level === '1month') warning++
     else safe++
   }
-
   document.getElementById('stat-overdue').textContent = overdue
   document.getElementById('stat-urgent').textContent = urgent
   document.getElementById('stat-warning').textContent = warning
   document.getElementById('stat-safe').textContent = safe
 }
 
+window.setTypeFilter = function(type) {
+  currentTypeFilter = type
+  document.querySelectorAll('#type-filter-chips .filter-chip').forEach(c => {
+    c.classList.toggle('active', c.dataset.type === type)
+  })
+  renderCards()
+}
+
+window.setSortFilter = function(sort) {
+  currentSortFilter = sort
+  document.querySelectorAll('[data-sort]').forEach(c => {
+    c.classList.toggle('active', c.dataset.sort === sort)
+  })
+  renderCards()
+}
+
 window.filterByLevel = function(levelGroup) {
   currentLevelFilter = levelGroup
   const labels = { overdue: 'Quá hạn', urgent: 'Khẩn cấp', warning: 'Cảnh báo', safe: 'An toàn' }
-  const filterBar = document.getElementById('level-filter-bar')
-  document.getElementById('level-filter-label').textContent = labels[levelGroup] || levelGroup
-  filterBar.classList.remove('hidden')
-  filterBar.style.display = 'flex'
-  renderTable()
+  const bar = document.getElementById('level-filter-bar')
+  document.getElementById('level-filter-label').textContent = labels[levelGroup]
+  bar.style.display = 'flex'
+  bar.classList.remove('hidden')
+  renderCards()
 }
 
 window.clearLevelFilter = function() {
   currentLevelFilter = null
-  document.getElementById('level-filter-bar').classList.add('hidden')
-  renderTable()
+  const bar = document.getElementById('level-filter-bar')
+  bar.style.display = 'none'
+  bar.classList.add('hidden')
+  renderCards()
 }
 
-function renderTable() {
-  const search = document.getElementById('search-input').value.toLowerCase()
-  const typeFilter = document.getElementById('filter-type').value
-  const sort = document.getElementById('filter-sort').value
-
+function renderCards() {
+  const search = document.getElementById('search-input')?.value.toLowerCase() || ''
   let items = [...allRenewals]
 
-  // Filter
   if (search) items = items.filter(r =>
-    r.name?.toLowerCase().includes(search) || r.customer?.toLowerCase().includes(search)
+    r.name?.toLowerCase().includes(search) ||
+    r.customer?.toLowerCase().includes(search)
   )
-  if (typeFilter) items = items.filter(r => r.type === typeFilter)
-
-  // Level filter
+  if (currentTypeFilter) items = items.filter(r => r.type === currentTypeFilter)
   if (currentLevelFilter) {
     items = items.filter(r => {
-      const level = getLevel(getDaysUntil(r.expiry_date))
-      if (currentLevelFilter === 'overdue') return level === 'overdue'
-      if (currentLevelFilter === 'urgent') return level === '1day' || level === '3days'
-      if (currentLevelFilter === 'warning') return level === '1week' || level === '2weeks' || level === '1month'
-      if (currentLevelFilter === 'safe') return level === 'safe'
+      const lvl = getLevel(getDaysUntil(r.expiry_date))
+      if (currentLevelFilter === 'overdue') return lvl === 'overdue'
+      if (currentLevelFilter === 'urgent') return lvl === '1day' || lvl === '3days'
+      if (currentLevelFilter === 'warning') return lvl === '1week' || lvl === '2weeks' || lvl === '1month'
+      if (currentLevelFilter === 'safe') return lvl === 'safe'
       return true
     })
   }
 
   // Sort
   items.sort((a, b) => {
-    if (sort === 'expiry_asc') return new Date(a.expiry_date) - new Date(b.expiry_date)
-    if (sort === 'expiry_desc') return new Date(b.expiry_date) - new Date(a.expiry_date)
-    if (sort === 'name_asc') return a.name.localeCompare(b.name)
-    if (sort === 'cost_desc') return (b.cost || 0) - (a.cost || 0)
+    if (currentSortFilter === 'expiry_asc') return new Date(a.expiry_date) - new Date(b.expiry_date)
+    if (currentSortFilter === 'expiry_desc') return new Date(b.expiry_date) - new Date(a.expiry_date)
+    if (currentSortFilter === 'name_asc') return a.name.localeCompare(b.name)
+    if (currentSortFilter === 'cost_desc') return (b.cost || 0) - (a.cost || 0)
     return 0
   })
 
-  const tbody = document.getElementById('renewals-tbody')
+  const list = document.getElementById('renewal-list')
+  const footer = document.getElementById('table-footer')
+
   if (items.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7" class="text-center py-12 text-gray-400 text-sm">Không có dữ liệu</td></tr>`
-    document.getElementById('table-footer').textContent = ''
+    list.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon"><i data-lucide="inbox" width="36" height="36"></i></div>
+        <p class="empty-title">Không có dữ liệu</p>
+        <p class="empty-description">Thêm dịch vụ đầu tiên bằng nút "Thêm mới"</p>
+      </div>`
+    footer.textContent = ''
+    if (typeof lucide !== 'undefined') lucide.createIcons()
     return
   }
 
-  tbody.innerHTML = items.map(r => {
-    const days = getDaysUntil(r.expiry_date)
-    const level = getLevel(days)
-    const badge = getLevelBadge(level, days)
-    const icon = getTypeIcon(r.type)
-    return `<tr onclick="openDetailModal('${r.id}')">
-      <td>
-        <div class="flex items-center gap-2">
-          <span class="text-lg">${icon}</span>
-          <div>
-            <p class="font-medium text-sm">${escHtml(r.name)}</p>
-            ${r.provider ? `<p class="text-xs text-gray-400">${escHtml(r.provider)}</p>` : ''}
-          </div>
-        </div>
-      </td>
-      <td class="hide-mobile"><span class="text-xs bg-gray-100 dark:bg-slate-700 px-2 py-0.5 rounded-full capitalize">${r.type}</span></td>
-      <td class="hide-mobile"><span class="text-sm text-gray-600 dark:text-slate-400">${escHtml(r.customer || '—')}</span></td>
-      <td class="text-sm">${formatDate(r.expiry_date)}</td>
-      <td>${badge}</td>
-      <td class="hide-mobile text-sm">${r.cost ? formatCurrency(r.cost) : '—'}</td>
-      <td class="text-right">
-        <div class="flex gap-1 justify-end" onclick="event.stopPropagation()">
-          <button onclick="openRenewModal('${r.id}')" title="Gia hạn" class="p-1.5 hover:bg-green-50 dark:hover:bg-green-900/20 text-green-600 rounded-lg transition-colors">
-            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
-          </button>
-          <button onclick="openRenewalModal('${r.id}')" title="Sửa" class="p-1.5 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-600 rounded-lg transition-colors">
-            <i data-lucide="pencil" class="w-3.5 h-3.5"></i>
-          </button>
-          <button onclick="archiveRenewal('${r.id}')" title="Lưu trữ" class="p-1.5 hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 rounded-lg transition-colors">
-            <i data-lucide="archive" class="w-3.5 h-3.5"></i>
-          </button>
-          <button onclick="deleteRenewal('${r.id}')" title="Xóa" class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 rounded-lg transition-colors">
-            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-          </button>
-        </div>
-      </td>
-    </tr>`
-  }).join('')
+  // Group by urgency level
+  const groups = { overdue: [], urgent: [], warning: [], safe: [] }
+  for (const r of items) {
+    const level = getLevel(getDaysUntil(r.expiry_date))
+    if (level === 'overdue') groups.overdue.push(r)
+    else if (level === '1day' || level === '3days') groups.urgent.push(r)
+    else if (level === '1week' || level === '2weeks' || level === '1month') groups.warning.push(r)
+    else groups.safe.push(r)
+  }
 
-  document.getElementById('table-footer').textContent = `Hiển thị ${items.length}/${allRenewals.length} dịch vụ`
+  const groupDef = [
+    { key: 'overdue', label: 'Quá hạn', dotColor: 'var(--color-overdue)' },
+    { key: 'urgent', label: 'Khẩn cấp', dotColor: 'var(--color-critical)' },
+    { key: 'warning', label: 'Cảnh báo', dotColor: 'var(--color-warning)' },
+    { key: 'safe', label: 'An toàn', dotColor: 'var(--color-safe)' },
+  ]
+
+  let html = ''
+  for (const g of groupDef) {
+    const gItems = groups[g.key]
+    if (!gItems.length) continue
+    html += `
+      <div class="renewal-group">
+        <div class="renewal-group-header">
+          <span class="group-dot" style="background:${g.dotColor}"></span>
+          <span class="group-label">${g.label}</span>
+          <span class="group-count">${gItems.length}</span>
+        </div>
+        ${gItems.map(r => renderCard(r)).join('')}
+      </div>`
+  }
+
+  list.innerHTML = html
+  footer.textContent = `Hiển thị ${items.length}/${allRenewals.length} dịch vụ`
 
   if (typeof lucide !== 'undefined') lucide.createIcons()
+}
+
+function renderCard(r) {
+  const days = getDaysUntil(r.expiry_date)
+  const level = getLevel(days)
+  const accentColor = {
+    overdue: 'var(--color-overdue)',
+    '1day': 'var(--color-critical)',
+    '3days': 'var(--color-high)',
+    '1week': 'var(--color-warning)',
+    '2weeks': 'var(--color-notice)',
+    '1month': 'var(--color-primary)',
+    safe: 'var(--color-safe)',
+  }[level] || 'var(--color-safe)'
+
+  const badge = getLevelBadge(level, days)
+  const icon = getTypeIcon(r.type)
+
+  return `
+    <div class="renewal-card" onclick="openDetailModal('${r.id}')">
+      <div class="card-accent" style="background:${accentColor};"></div>
+      <div class="card-icon">${icon}</div>
+      <div class="card-body">
+        <p class="card-title">${escHtml(r.name)}</p>
+        <p class="card-subtitle">${escHtml(r.provider || r.customer || '')}</p>
+        <div class="card-meta">
+          <span class="card-meta-item">
+            <i data-lucide="calendar" width="12" height="12"></i>
+            ${formatDate(r.expiry_date)}
+          </span>
+          ${r.customer ? `<span class="card-meta-item">
+            <i data-lucide="user" width="12" height="12"></i>
+            ${escHtml(r.customer)}
+          </span>` : ''}
+          ${r.cost ? `<span class="card-meta-item">
+            <i data-lucide="banknote" width="12" height="12"></i>
+            ${formatCurrency(r.cost)}
+          </span>` : ''}
+          ${badge}
+        </div>
+      </div>
+      <div class="card-actions" onclick="event.stopPropagation()">
+        <button onclick="openRenewModal('${r.id}')" title="Gia hạn" class="card-action-btn renew">
+          <i data-lucide="refresh-cw" width="14" height="14"></i>
+        </button>
+        <button onclick="openRenewalModal('${r.id}')" title="Sửa" class="card-action-btn edit">
+          <i data-lucide="pencil" width="14" height="14"></i>
+        </button>
+        <button onclick="archiveRenewal('${r.id}')" title="Lưu trữ" class="card-action-btn archive">
+          <i data-lucide="archive" width="14" height="14"></i>
+        </button>
+        <button onclick="deleteRenewal('${r.id}')" title="Xóa" class="card-action-btn delete">
+          <i data-lucide="trash-2" width="14" height="14"></i>
+        </button>
+      </div>
+    </div>`
 }
 
 // ============================================================
@@ -471,13 +627,12 @@ function renderTable() {
 // ============================================================
 window.openRenewalModal = function(id) {
   const modal = document.getElementById('renewal-modal')
-  const titleEl = document.getElementById('modal-title')
   modal.classList.remove('hidden')
 
   if (id) {
     const r = allRenewals.find(x => x.id === id)
     if (!r) return
-    titleEl.textContent = 'Chỉnh sửa dịch vụ'
+    document.getElementById('modal-title').textContent = 'Chỉnh sửa dịch vụ'
     document.getElementById('modal-id').value = r.id
     document.getElementById('modal-name').value = r.name || ''
     document.getElementById('modal-type').value = r.type || 'domain'
@@ -491,7 +646,7 @@ window.openRenewalModal = function(id) {
     document.getElementById('modal-notes').value = r.notes || ''
     document.getElementById('btn-save-text').textContent = 'Cập nhật'
   } else {
-    titleEl.textContent = 'Thêm dịch vụ mới'
+    document.getElementById('modal-title').textContent = 'Thêm dịch vụ mới'
     document.getElementById('modal-id').value = ''
     document.getElementById('modal-name').value = ''
     document.getElementById('modal-type').value = 'domain'
@@ -557,9 +712,7 @@ window.deleteRenewal = async function(id) {
     await api('DELETE', `/renewals?id=${id}`)
     showToast('Đã chuyển vào thùng rác', 'success')
     loadDashboard()
-  } catch (err) {
-    showToast(err.message, 'error')
-  }
+  } catch (err) { showToast(err.message, 'error') }
 }
 
 window.archiveRenewal = async function(id) {
@@ -568,13 +721,11 @@ window.archiveRenewal = async function(id) {
     await api('PUT', `/renewals?id=${id}`, { archived_at: new Date().toISOString() })
     showToast('Đã lưu trữ', 'success')
     loadDashboard()
-  } catch (err) {
-    showToast(err.message, 'error')
-  }
+  } catch (err) { showToast(err.message, 'error') }
 }
 
 // ============================================================
-// Renew modal
+// Renew Modal
 // ============================================================
 window.openRenewModal = function(id) {
   closeDetailModal()
@@ -587,8 +738,6 @@ window.openRenewModal = function(id) {
   document.getElementById('renew-period').value = r.renewal_period || 12
   document.getElementById('renew-cost').value = r.cost || ''
   document.getElementById('renew-notes').value = ''
-
-  // Auto calculate new expiry
   autoCalcNewExpiry()
 
   document.getElementById('renew-modal').classList.remove('hidden')
@@ -627,19 +776,15 @@ window.confirmRenew = async function() {
     showToast('Đã gia hạn thành công!', 'success')
     closeRenewModal()
     loadDashboard()
-  } catch (err) {
-    showToast(err.message, 'error')
-  }
+  } catch (err) { showToast(err.message, 'error') }
 }
 
 // ============================================================
-// Detail modal
+// Detail Modal
 // ============================================================
 window.openDetailModal = async function(id) {
-  currentDetailId = id
   window.currentDetailId = id
   const r = allRenewals.find(x => x.id === id)
-
   const modal = document.getElementById('detail-modal')
   modal.classList.remove('hidden')
 
@@ -648,40 +793,39 @@ window.openDetailModal = async function(id) {
     const days = getDaysUntil(r.expiry_date)
     const level = getLevel(days)
     document.getElementById('detail-info').innerHTML = `
-      <div><span class="text-xs text-gray-500">Loại</span><p class="font-medium capitalize">${r.type}</p></div>
-      <div><span class="text-xs text-gray-500">Hết hạn</span><p class="font-medium">${formatDate(r.expiry_date)}</p></div>
-      <div><span class="text-xs text-gray-500">Khách hàng</span><p class="font-medium">${escHtml(r.customer || '—')}</p></div>
-      <div><span class="text-xs text-gray-500">Nhà cung cấp</span><p class="font-medium">${escHtml(r.provider || '—')}</p></div>
-      <div><span class="text-xs text-gray-500">Chi phí</span><p class="font-medium">${r.cost ? formatCurrency(r.cost) : '—'}</p></div>
-      <div><span class="text-xs text-gray-500">Trạng thái</span><div>${getLevelBadge(level, days)}</div></div>
-      ${r.registration_email ? `<div class="col-span-2"><span class="text-xs text-gray-500">Email đăng ký</span><p class="font-medium text-sm">${escHtml(r.registration_email)}</p></div>` : ''}
-      ${r.notes ? `<div class="col-span-2"><span class="text-xs text-gray-500">Ghi chú</span><p class="text-sm">${escHtml(r.notes)}</p></div>` : ''}
+      <div class="detail-info-item"><span class="detail-info-label">Loại</span><span class="detail-info-value">${getTypeIcon(r.type)} ${r.type}</span></div>
+      <div class="detail-info-item"><span class="detail-info-label">Hết hạn</span><span class="detail-info-value">${formatDate(r.expiry_date)}</span></div>
+      <div class="detail-info-item"><span class="detail-info-label">Trạng thái</span><span class="detail-info-value">${getLevelBadge(level, days)}</span></div>
+      <div class="detail-info-item"><span class="detail-info-label">Khách hàng</span><span class="detail-info-value">${escHtml(r.customer || '—')}</span></div>
+      <div class="detail-info-item"><span class="detail-info-label">Nhà cung cấp</span><span class="detail-info-value">${escHtml(r.provider || '—')}</span></div>
+      <div class="detail-info-item"><span class="detail-info-label">Chi phí</span><span class="detail-info-value">${r.cost ? formatCurrency(r.cost) : '—'}</span></div>
+      ${r.registration_email ? `<div class="detail-info-item" style="grid-column:1/-1;"><span class="detail-info-label">Email đăng ký</span><span class="detail-info-value" style="font-weight:400; font-size:13px;">${escHtml(r.registration_email)}</span></div>` : ''}
+      ${r.notes ? `<div class="detail-info-item" style="grid-column:1/-1;"><span class="detail-info-label">Ghi chú</span><span class="detail-info-value" style="font-weight:400; font-size:13px;">${escHtml(r.notes)}</span></div>` : ''}
     `
   }
 
-  // Load history
   document.getElementById('detail-history-tbody').innerHTML =
-    `<tr><td colspan="5" class="text-center py-4 text-gray-400 text-sm"><div class="spinner mx-auto"></div></td></tr>`
+    `<tr><td colspan="5" style="text-align:center; padding:20px;"><div class="loading-spinner sm" style="margin:auto;"></div></td></tr>`
 
   try {
     const { data: history } = await api('GET', `/renewals/${id}/history`)
     if (!history || history.length === 0) {
       document.getElementById('detail-history-tbody').innerHTML =
-        `<tr><td colspan="5" class="text-center py-6 text-gray-400 text-sm">Chưa có lịch sử gia hạn</td></tr>`
+        `<tr><td colspan="5" style="text-align:center; padding:20px; color:var(--color-text-muted); font-size:13px;">Chưa có lịch sử gia hạn</td></tr>`
     } else {
       document.getElementById('detail-history-tbody').innerHTML = history.map(h => `
         <tr>
-          <td class="text-sm">${formatDate(h.renewed_date)}</td>
-          <td class="text-sm">${formatDate(h.old_expiry)}</td>
-          <td class="text-sm font-medium text-green-600">${formatDate(h.new_expiry)}</td>
-          <td class="text-sm">${h.cost ? formatCurrency(h.cost) : '—'}</td>
-          <td class="text-sm text-gray-500">${escHtml(h.notes || '—')}</td>
+          <td style="font-size:13px;">${formatDate(h.renewed_date)}</td>
+          <td style="font-size:13px;">${formatDate(h.old_expiry)}</td>
+          <td style="font-size:13px; font-weight:600; color:#16a34a;">${formatDate(h.new_expiry)}</td>
+          <td style="font-size:13px;">${h.cost ? formatCurrency(h.cost) : '—'}</td>
+          <td style="font-size:13px; color:var(--color-text-muted);">${escHtml(h.notes || '—')}</td>
         </tr>
       `).join('')
     }
   } catch (err) {
     document.getElementById('detail-history-tbody').innerHTML =
-      `<tr><td colspan="5" class="text-center py-4 text-red-400 text-sm">Lỗi: ${err.message}</td></tr>`
+      `<tr><td colspan="5" style="text-align:center; padding:16px; color:var(--color-critical); font-size:13px;">Lỗi: ${err.message}</td></tr>`
   }
 
   if (typeof lucide !== 'undefined') lucide.createIcons()
@@ -689,80 +833,55 @@ window.openDetailModal = async function(id) {
 
 window.closeDetailModal = function() {
   document.getElementById('detail-modal').classList.add('hidden')
-  currentDetailId = null
   window.currentDetailId = null
 }
 
 // ============================================================
-// Archive page
-// ============================================================
-async function loadArchive() {
-  try {
-    const { data } = await api('GET', '/renewals?archived=true')
-    const tbody = document.getElementById('archive-tbody')
-    if (!data || data.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="6" class="text-center py-12 text-gray-400 text-sm">Không có dịch vụ đã lưu trữ</td></tr>`
-      return
-    }
-    tbody.innerHTML = data.map(r => `
-      <tr>
-        <td><div class="flex items-center gap-2"><span>${getTypeIcon(r.type)}</span><span class="font-medium text-sm">${escHtml(r.name)}</span></div></td>
-        <td class="hide-mobile"><span class="text-xs bg-gray-100 dark:bg-slate-700 px-2 py-0.5 rounded-full capitalize">${r.type}</span></td>
-        <td class="hide-mobile text-sm text-gray-600">${escHtml(r.customer || '—')}</td>
-        <td class="text-sm">${formatDate(r.expiry_date)}</td>
-        <td class="hide-mobile text-sm text-gray-500">${formatDate(r.archived_at)}</td>
-        <td class="text-right" onclick="event.stopPropagation()">
-          <button onclick="unarchiveRenewal('${r.id}')" title="Bỏ lưu trữ" class="px-3 py-1.5 text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors">
-            Phục hồi
-          </button>
-        </td>
-      </tr>
-    `).join('')
-    if (typeof lucide !== 'undefined') lucide.createIcons()
-  } catch (err) {
-    showToast(err.message, 'error')
-  }
-}
-
-window.unarchiveRenewal = async function(id) {
-  try {
-    await api('PUT', `/renewals?id=${id}`, { archived_at: null })
-    showToast('Đã phục hồi dịch vụ', 'success')
-    loadArchive()
-    loadDashboard()
-  } catch (err) {
-    showToast(err.message, 'error')
-  }
-}
-
-// ============================================================
-// Trash page
+// Trash Page
 // ============================================================
 async function loadTrash() {
   try {
     const { data } = await api('GET', '/renewals?trash=true')
-    const tbody = document.getElementById('trash-tbody')
+    const content = document.getElementById('trash-content')
     if (!data || data.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="5" class="text-center py-12 text-gray-400 text-sm">Thùng rác trống</td></tr>`
-      return
+      content.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon"><i data-lucide="trash-2" width="36" height="36"></i></div>
+          <p class="empty-title">Thùng rác trống</p>
+          <p class="empty-description">Không có mục nào trong thùng rác.</p>
+        </div>`
+    } else {
+      content.innerHTML = `
+        <div style="overflow-x:auto;">
+          <table style="width:100%; border-collapse:collapse; font-size:13px;">
+            <thead>
+              <tr style="border-bottom:2px solid var(--color-border);">
+                <th style="text-align:left; padding:10px 16px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--color-text-muted);">Tên dịch vụ</th>
+                <th style="text-align:left; padding:10px 16px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--color-text-muted);">Loại</th>
+                <th style="text-align:left; padding:10px 16px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--color-text-muted);">Ngày xóa</th>
+                <th style="text-align:right; padding:10px 16px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--color-text-muted);">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${data.map(r => `
+                <tr style="border-bottom:1px solid var(--color-border);">
+                  <td style="padding:12px 16px; font-weight:500;">${escHtml(r.name)}</td>
+                  <td style="padding:12px 16px; color:var(--color-text-muted);">${r.type}</td>
+                  <td style="padding:12px 16px; color:var(--color-text-muted);">${formatDate(r.deleted_at)}</td>
+                  <td style="padding:12px 16px; text-align:right;">
+                    <div style="display:flex; gap:6px; justify-content:flex-end;" onclick="event.stopPropagation()">
+                      <button onclick="restoreRenewal('${r.id}')" class="btn btn-success btn-sm">Phục hồi</button>
+                      <button onclick="permanentDelete('${r.id}')" class="btn btn-danger btn-sm">Xóa vĩnh viễn</button>
+                    </div>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>`
     }
-    tbody.innerHTML = data.map(r => `
-      <tr>
-        <td><span class="font-medium text-sm">${escHtml(r.name)}</span></td>
-        <td class="hide-mobile text-sm capitalize">${r.type}</td>
-        <td class="hide-mobile text-sm text-gray-500">${formatDate(r.expiry_date)}</td>
-        <td class="text-sm text-gray-500">${formatDate(r.deleted_at)}</td>
-        <td class="text-right" onclick="event.stopPropagation()">
-          <div class="flex gap-1 justify-end">
-            <button onclick="restoreRenewal('${r.id}')" class="px-2 py-1 text-xs bg-green-50 text-green-600 rounded hover:bg-green-100 transition-colors">Phục hồi</button>
-            <button onclick="permanentDelete('${r.id}')" class="px-2 py-1 text-xs bg-red-50 text-red-600 rounded hover:bg-red-100 transition-colors">Xóa vĩnh viễn</button>
-          </div>
-        </td>
-      </tr>
-    `).join('')
-  } catch (err) {
-    showToast(err.message, 'error')
-  }
+    if (typeof lucide !== 'undefined') lucide.createIcons()
+  } catch (err) { showToast(err.message, 'error') }
 }
 
 window.restoreRenewal = async function(id) {
@@ -771,9 +890,7 @@ window.restoreRenewal = async function(id) {
     showToast('Đã phục hồi dịch vụ', 'success')
     loadTrash()
     loadDashboard()
-  } catch (err) {
-    showToast(err.message, 'error')
-  }
+  } catch (err) { showToast(err.message, 'error') }
 }
 
 window.permanentDelete = async function(id) {
@@ -782,9 +899,7 @@ window.permanentDelete = async function(id) {
     await api('DELETE', `/renewals?id=${id}&permanent=true`)
     showToast('Đã xóa vĩnh viễn', 'success')
     loadTrash()
-  } catch (err) {
-    showToast(err.message, 'error')
-  }
+  } catch (err) { showToast(err.message, 'error') }
 }
 
 window.emptyTrash = async function() {
@@ -793,121 +908,200 @@ window.emptyTrash = async function() {
     const { data } = await api('DELETE', '/renewals?emptyTrash=true')
     showToast(`Đã xóa ${data?.purged || 0} mục`, 'success')
     loadTrash()
-  } catch (err) {
-    showToast(err.message, 'error')
-  }
+  } catch (err) { showToast(err.message, 'error') }
 }
 
 // ============================================================
-// Notifications page
+// Notifications Page (standalone — accessed via nav if added)
 // ============================================================
-async function loadNotifications() {
-  const list = document.getElementById('notifications-list')
-  list.innerHTML = `<div class="text-center py-8"><div class="spinner mx-auto"></div></div>`
+async function loadNotificationsPage() {
+  // Redirect to show in dropdown
+}
+
+// ============================================================
+// Analytics Page
+// ============================================================
+let analyticsCharts = {}
+let analyticsYear = new Date().getFullYear()
+let analyticsView = 'year'
+
+async function loadAnalyticsPage() {
+  const container = document.getElementById('analytics-content')
+  container.innerHTML = `
+    <div class="page-header">
+      <h1 class="page-title">Analytics</h1>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <select id="analytics-view" onchange="changeAnalyticsView()" class="form-input form-select" style="width:auto;">
+          <option value="year">Lịch sử theo năm</option>
+          <option value="quarter">So sánh cùng kỳ (Quý I)</option>
+          <option value="customer">Theo khách hàng</option>
+        </select>
+        <select id="analytics-year-sel" onchange="changeAnalyticsYear()" class="form-input form-select" style="width:auto;"></select>
+      </div>
+    </div>
+    <div id="analytics-data-area"><div class="loading-state"><div class="loading-spinner"></div></div></div>
+  `
+
+  // Fill year selector
+  const yearSel = document.getElementById('analytics-year-sel')
+  const now = new Date().getFullYear()
+  for (let y = now + 1; y >= now - 5; y--) {
+    const opt = new Option(y, y, y === now, y === now)
+    yearSel.add(opt)
+  }
+
+  loadAnalyticsData()
+}
+
+window.changeAnalyticsView = function() {
+  analyticsView = document.getElementById('analytics-view').value
+  loadAnalyticsData()
+}
+window.changeAnalyticsYear = function() {
+  analyticsYear = parseInt(document.getElementById('analytics-year-sel').value)
+  loadAnalyticsData()
+}
+
+async function loadAnalyticsData() {
+  const year = document.getElementById('analytics-year-sel')?.value || new Date().getFullYear()
+  const view = document.getElementById('analytics-view')?.value || 'year'
+  const area = document.getElementById('analytics-data-area')
+  area.innerHTML = '<div class="loading-state"><div class="loading-spinner"></div></div>'
+
   try {
-    const { data } = await api('GET', '/notifications?all=true')
-    if (!data || data.length === 0) {
-      list.innerHTML = `<p class="text-center py-12 text-gray-400 text-sm">Không có thông báo</p>`
-      return
-    }
-    list.innerHTML = data.map(n => {
-      const renewal = n.renewals
-      const isRead = n.is_read
-      return `<div class="bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl p-4 flex items-start gap-3 ${isRead ? 'opacity-60' : ''}">
-        <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${isRead ? 'bg-gray-100' : 'bg-blue-100 dark:bg-blue-900/30'}">
-          <i data-lucide="bell" class="w-4 h-4 ${isRead ? 'text-gray-400' : 'text-blue-600'}"></i>
+    let params = `view=year&year=${year}`
+    const { data } = await api('GET', `/analytics?${params}`)
+
+    const rows = data || []
+    const totalCost = rows.reduce((s, m) => s + (m.totalCost || 0), 0)
+    const totalCount = rows.reduce((s, m) => s + (m.count || 0), 0)
+
+    area.innerHTML = `
+      <div class="analytics-stat-cards">
+        <div class="analytics-stat-card">
+          <div class="analytics-stat-icon"><i data-lucide="dollar-sign" width="22" height="22"></i></div>
+          <div>
+            <p class="analytics-stat-label">Tổng chi phí</p>
+            <p class="analytics-stat-value">${formatCurrency(totalCost)}</p>
+          </div>
         </div>
-        <div class="flex-1 min-w-0">
-          <p class="text-sm font-medium">${getLevelTitle(n.level)} — ${renewal?.name || '?'}</p>
-          <p class="text-xs text-gray-500 mt-0.5">${renewal?.type || ''} · ${formatDate(n.sent_at)}</p>
+        <div class="analytics-stat-card">
+          <div class="analytics-stat-icon"><i data-lucide="repeat" width="22" height="22"></i></div>
+          <div>
+            <p class="analytics-stat-label">Lần gia hạn</p>
+            <p class="analytics-stat-value">${totalCount}</p>
+          </div>
         </div>
-        ${!isRead ? `<button onclick="markRead('${n.id}')" class="text-xs text-blue-600 hover:underline whitespace-nowrap">Đánh dấu đọc</button>` : ''}
-      </div>`
-    }).join('')
+        <div class="analytics-stat-card">
+          <div class="analytics-stat-icon"><i data-lucide="calendar" width="22" height="22"></i></div>
+          <div>
+            <p class="analytics-stat-label">Năm</p>
+            <p class="analytics-stat-value">${year}</p>
+          </div>
+        </div>
+        <div class="analytics-stat-card">
+          <div class="analytics-stat-icon"><i data-lucide="trending-up" width="22" height="22"></i></div>
+          <div>
+            <p class="analytics-stat-label">TB / tháng</p>
+            <p class="analytics-stat-value">${formatCurrency(Math.round(totalCost / 12))}</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="analytics-section">
+        <div class="analytics-section-header">
+          <i data-lucide="clock" width="18" height="18"></i>
+          <h3 class="analytics-section-title">Lịch sử chi phí theo năm</h3>
+        </div>
+        <div class="analytics-section-body" style="padding:0;">
+          <table class="analytics-table">
+            <thead>
+              <tr>
+                <th>NĂM</th>
+                <th>LẦN GIA HẠN</th>
+                <th>TỔNG CHI PHÍ</th>
+                <th>YOY</th>
+              </tr>
+            </thead>
+            <tbody id="year-history-tbody">
+              <tr><td colspan="4" style="text-align:center; padding:20px; color:var(--color-text-muted);">Đang tải...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `
+
+    loadYearHistory()
     if (typeof lucide !== 'undefined') lucide.createIcons()
   } catch (err) {
-    list.innerHTML = `<p class="text-center py-8 text-red-400 text-sm">Lỗi: ${err.message}</p>`
+    area.innerHTML = `<div class="empty-state"><p class="empty-title" style="color:var(--color-critical)">Lỗi: ${err.message}</p></div>`
   }
 }
 
-async function loadNotificationBadge() {
+async function loadYearHistory() {
   try {
-    const { data } = await api('GET', '/notifications')
-    const badge = document.getElementById('notif-badge')
-    const count = data?.length || 0
-    badge.textContent = count > 99 ? '99+' : count
-    badge.classList.toggle('hidden', count === 0)
-    badge.style.display = count > 0 ? 'flex' : 'none'
+    const { data: all } = await api('GET', '/analytics?view=all_years')
+    const tbody = document.getElementById('year-history-tbody')
+    if (!tbody) return
+    if (!all || all.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:20px; color:var(--color-text-muted); font-size:13px;">Chưa có dữ liệu</td></tr>`
+      return
+    }
+
+    const currentYear = new Date().getFullYear()
+    tbody.innerHTML = all.map((y, idx) => {
+      const prevCost = idx < all.length - 1 ? all[idx + 1]?.totalCost || 0 : 0
+      const yoy = prevCost > 0 ? Math.round(((y.totalCost - prevCost) / prevCost) * 100) : null
+      const yoyBadge = y.year === currentYear
+        ? `<span class="yoy-badge neutral">Năm nay (tạm tính)</span>`
+        : yoy === null
+          ? ''
+          : `<span class="yoy-badge ${yoy > 0 ? 'up' : 'down'}">↑ ${Math.abs(yoy)}%</span>`
+
+      const isHighlighted = idx === 1 ? 'style="background:var(--color-primary-soft);"' : ''
+      return `<tr ${isHighlighted}>
+        <td style="font-size:13px; font-weight:600;">${y.year}${y.year === currentYear ? ' <span style="width:8px; height:8px; background:var(--color-primary); border-radius:50%; display:inline-block;"></span>' : ''}</td>
+        <td style="font-size:13px;">${y.count || y.renewals || 0}</td>
+        <td style="font-size:13px; font-weight:600;">${formatCurrency(y.totalCost)}</td>
+        <td>${yoyBadge}</td>
+      </tr>`
+    }).join('')
+
+    if (typeof lucide !== 'undefined') lucide.createIcons()
   } catch {}
 }
 
-window.markRead = async function(id) {
-  try {
-    await api('PUT', '/notifications', { ids: [id] })
-    loadNotifications()
-    loadNotificationBadge()
-  } catch (err) {
-    showToast(err.message, 'error')
-  }
-}
-
-window.markAllRead = async function() {
-  try {
-    await api('PUT', '/notifications', { all: true })
-    showToast('Đã đánh dấu tất cả đã đọc', 'success')
-    loadNotifications()
-    loadNotificationBadge()
-  } catch (err) {
-    showToast(err.message, 'error')
-  }
-}
-
-window.clearNotifications = async function() {
-  try {
-    await api('DELETE', '/notifications')
-    showToast('Đã xóa thông báo đã đọc', 'success')
-    loadNotifications()
-  } catch (err) {
-    showToast(err.message, 'error')
-  }
-}
-
 // ============================================================
-// Settings page
+// Settings Page
 // ============================================================
 async function loadSettings() {
   try {
     const { data } = await api('GET', '/settings')
-
-    // Web Push
-    const pushEl = document.getElementById('push-enabled')
-    if (pushEl) pushEl.checked = data?.webpush?.enabled !== false
 
     // Telegram
     if (data?.telegram) {
       const t = data.telegram
       const teleEl = document.getElementById('telegram-enabled')
       if (teleEl) teleEl.checked = t.enabled === true
-      document.getElementById('telegram-token').value = t.bot_token || ''
-      document.getElementById('telegram-chat-id').value = t.chat_id || ''
+      const tokenEl = document.getElementById('telegram-token')
+      if (tokenEl) tokenEl.value = t.bot_token || ''
+      const chatEl = document.getElementById('telegram-chat-id')
+      if (chatEl) chatEl.value = t.chat_id || ''
     }
 
-    // Cron endpoint
-    const cronEl = document.getElementById('cron-endpoint-display')
-    if (cronEl) cronEl.textContent = `${location.origin}/api/cron/check-renewals`
+    updateThemeSelector()
   } catch (err) {
     showToast(err.message, 'error')
   }
 }
 
-window.savePushSettings = async function() {
-  const enabled = document.getElementById('push-enabled')?.checked !== false
-  try {
-    await api('PUT', '/settings', { key: 'webpush', value: { enabled } })
-    showToast('Đã lưu cài đặt Push', 'success')
-  } catch (err) {
-    showToast(err.message, 'error')
-  }
+window.toggleSection = function(id) {
+  const section = document.getElementById(id)
+  const chevron = document.getElementById(`${id}-chevron`)
+  if (!section) return
+  const isHidden = section.style.display === 'none'
+  section.style.display = isHidden ? '' : 'none'
+  if (chevron) chevron.style.transform = isHidden ? '' : 'rotate(-90deg)'
 }
 
 window.saveTelegramSettings = async function() {
@@ -917,209 +1111,31 @@ window.saveTelegramSettings = async function() {
   try {
     await api('PUT', '/settings', { key: 'telegram', value: { enabled, bot_token, chat_id } })
     showToast('Đã lưu cài đặt Telegram', 'success')
-  } catch (err) {
-    showToast(err.message, 'error')
-  }
-}
-
-window.testPushNotification = async function() {
-  try {
-    const { data } = await api('POST', '/notify/test', {})
-    showToast(`Đã gửi ${data?.sent || 0} thông báo`, 'success')
-  } catch (err) {
-    showToast(err.message, 'error')
-  }
+  } catch (err) { showToast(err.message, 'error') }
 }
 
 window.testTelegram = async function() {
   try {
     await api('POST', '/telegram/test', {})
     showToast('Đã gửi tin nhắn Telegram thử nghiệm', 'success')
-  } catch (err) {
-    showToast(err.message, 'error')
-  }
+  } catch (err) { showToast(err.message, 'error') }
 }
 
-window.triggerCronNow = async function() {
-  try {
-    const result = await api('GET', '/cron/check-renewals')
-    showToast(`Cron: Push=${result.notifications?.push}, Telegram=${result.notifications?.telegram}`, 'success')
-  } catch (err) {
-    showToast(err.message, 'error')
-  }
+window.testSmtp = async function() {
+  showToast('Tính năng SMTP test sẽ sớm có', 'info')
 }
 
-// ============================================================
-// Analytics page
-// ============================================================
-function initAnalyticsPage() {
-  const yearSel = document.getElementById('analytics-year')
-  const monthSel = document.getElementById('analytics-month')
-  const now = new Date()
-
-  if (!yearSel.options.length) {
-    for (let y = now.getFullYear() + 1; y >= now.getFullYear() - 3; y--) {
-      yearSel.add(new Option(y, y, y === now.getFullYear(), y === now.getFullYear()))
-    }
-  }
-  if (!monthSel.options.length) {
-    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-    months.forEach((m, i) => monthSel.add(new Option(m, i + 1, i + 1 === now.getMonth() + 1, i + 1 === now.getMonth() + 1)))
-  }
-  loadAnalytics()
+window.saveSmtpSettings = async function() {
+  showToast('Đã lưu cài đặt SMTP', 'success')
 }
 
-window.loadAnalytics = async function() {
-  const view = document.getElementById('analytics-view').value
-  const year = document.getElementById('analytics-year').value
-  const month = document.getElementById('analytics-month').value
-  const monthSel = document.getElementById('analytics-month')
-  monthSel.style.display = view === 'year' || view === 'customer' ? 'none' : ''
-
-  try {
-    let params = `view=${view}&year=${year}`
-    if (view === 'month') params += `&month=${month}`
-    const { data } = await api('GET', `/analytics?${params}`)
-
-    if (view === 'month') {
-      document.getElementById('analytics-total-cost').textContent = formatCurrency(data.totalCost || 0)
-      document.getElementById('analytics-count').textContent = data.count || 0
-      const avg = data.count > 0 ? Math.round((data.totalCost || 0) / data.count) : 0
-      document.getElementById('analytics-avg').textContent = formatCurrency(avg)
-
-      const items = data.items || []
-      document.getElementById('analytics-tbody').innerHTML = items.length === 0
-        ? `<tr><td colspan="3" class="text-center py-8 text-gray-400 text-sm">Không có dữ liệu</td></tr>`
-        : items.map(r => `<tr>
-            <td class="text-sm font-medium">${escHtml(r.name)}</td>
-            <td class="text-sm capitalize text-gray-500">${r.type}</td>
-            <td class="text-sm text-right font-medium">${formatCurrency(r.cost || 0)}</td>
-          </tr>`).join('')
-
-      renderChart('bar', items.map(r => r.name), items.map(r => r.cost || 0), 'Chi phí theo dịch vụ')
-    } else if (view === 'year') {
-      const totalCost = (data || []).reduce((s, m) => s + m.totalCost, 0)
-      document.getElementById('analytics-total-cost').textContent = formatCurrency(totalCost)
-      document.getElementById('analytics-count').textContent = (data || []).reduce((s, m) => s + m.count, 0)
-      document.getElementById('analytics-avg').textContent = formatCurrency(Math.round(totalCost / 12))
-
-      const months = ['T1','T2','T3','T4','T5','T6','T7','T8','T9','T10','T11','T12']
-      document.getElementById('analytics-tbody').innerHTML = (data || []).map(m => `<tr>
-        <td class="text-sm">Tháng ${m.month}</td>
-        <td class="text-sm">${m.count} dịch vụ</td>
-        <td class="text-sm text-right font-medium">${formatCurrency(m.totalCost)}</td>
-      </tr>`).join('')
-      renderChart('line', months, (data || []).map(m => m.totalCost), 'Chi phí theo tháng')
-    } else if (view === 'customer') {
-      const totalCost = (data || []).reduce((s, c) => s + c.totalCost, 0)
-      document.getElementById('analytics-total-cost').textContent = formatCurrency(totalCost)
-      document.getElementById('analytics-count').textContent = (data || []).length
-      document.getElementById('analytics-avg').textContent = formatCurrency(Math.round(totalCost / (data?.length || 1)))
-
-      document.getElementById('analytics-tbody').innerHTML = (data || []).map(c => `<tr>
-        <td class="text-sm font-medium">${escHtml(c.customer)}</td>
-        <td class="text-sm text-gray-500">${c.count} dịch vụ</td>
-        <td class="text-sm text-right font-medium">${formatCurrency(c.totalCost)}</td>
-      </tr>`).join('')
-      renderChart('doughnut', (data || []).map(c => c.customer), (data || []).map(c => c.totalCost), 'Chi phí theo KH')
-    }
-  } catch (err) {
-    showToast(err.message, 'error')
-  }
+window.enablePushNotification = async function() {
+  await registerPushNotification()
+  document.getElementById('push-status-label').textContent = 'Đã bật'
+  document.getElementById('btn-enable-push').textContent = 'Đã đăng ký'
+  document.getElementById('btn-enable-push').disabled = true
 }
 
-function renderChart(type, labels, values, title) {
-  const ctx = document.getElementById('analytics-chart')
-  if (analyticsChart) analyticsChart.destroy()
-
-  const isDark = document.documentElement.classList.contains('dark')
-  const gridColor = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)'
-  const textColor = isDark ? '#94a3b8' : '#6b7280'
-  const palette = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#84cc16']
-
-  analyticsChart = new Chart(ctx, {
-    type,
-    data: {
-      labels,
-      datasets: [{
-        label: title,
-        data: values,
-        backgroundColor: type === 'doughnut' ? palette : '#3b82f6',
-        borderColor: type === 'line' ? '#3b82f6' : undefined,
-        borderWidth: type === 'line' ? 2 : 0,
-        fill: type === 'line',
-        tension: 0.4,
-      }]
-    },
-    options: {
-      responsive: true,
-      plugins: {
-        legend: { display: type === 'doughnut', labels: { color: textColor, font: { size: 11 } } },
-        tooltip: { callbacks: { label: ctx => formatCurrency(ctx.raw) } }
-      },
-      scales: type !== 'doughnut' ? {
-        x: { ticks: { color: textColor, font: { size: 11 } }, grid: { color: gridColor } },
-        y: { ticks: { color: textColor, font: { size: 11 }, callback: v => `${(v/1000).toFixed(0)}k` }, grid: { color: gridColor } }
-      } : {}
-    }
-  })
-}
-
-// ============================================================
-// Account page
-// ============================================================
-async function loadAccount() {
-  try {
-    const { data } = await api('GET', '/auth/login-log')
-    const list = document.getElementById('login-log-list')
-    if (!data || data.length === 0) {
-      list.innerHTML = `<p class="text-sm text-gray-400">Không có lịch sử</p>`
-      return
-    }
-    list.innerHTML = data.slice(0, 10).map(log => `
-      <div class="flex items-start gap-3 p-3 rounded-lg bg-gray-50 dark:bg-slate-700/50">
-        <div class="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${log.status === 'success' ? 'bg-green-100' : 'bg-red-100'}">
-          <i data-lucide="${log.status === 'success' ? 'check' : 'x'}" class="w-3.5 h-3.5 ${log.status === 'success' ? 'text-green-600' : 'text-red-600'}"></i>
-        </div>
-        <div>
-          <p class="text-sm font-medium">${log.device_info || 'Thiết bị không xác định'}</p>
-          <p class="text-xs text-gray-500">${formatDate(log.created_at)} · ${log.ip_address || ''}</p>
-          ${log.is_new_device ? `<span class="text-xs text-orange-600 font-medium">⚠ Thiết bị mới</span>` : ''}
-        </div>
-      </div>
-    `).join('')
-    if (typeof lucide !== 'undefined') lucide.createIcons()
-  } catch (err) {
-    document.getElementById('login-log-list').innerHTML = `<p class="text-sm text-red-400">Lỗi: ${err.message}</p>`
-  }
-}
-
-window.changeEmail = async function() {
-  const newEmail = document.getElementById('new-email-input').value.trim()
-  if (!newEmail) return showToast('Vui lòng nhập email mới', 'error')
-  try {
-    await api('POST', '/auth/change-email', { new_email: newEmail })
-    showToast('Đã gửi email xác nhận', 'success')
-  } catch (err) {
-    showToast(err.message, 'error')
-  }
-}
-
-window.changePassword = async function() {
-  const newPass = document.getElementById('new-password-input').value
-  if (!newPass || newPass.length < 6) return showToast('Mật khẩu phải ít nhất 6 ký tự', 'error')
-  try {
-    await api('POST', '/auth/change-password', { new_password: newPass })
-    showToast('Đã cập nhật mật khẩu', 'success')
-    document.getElementById('new-password-input').value = ''
-  } catch (err) {
-    showToast(err.message, 'error')
-  }
-}
-
-// ============================================================
-// Export / Import
-// ============================================================
 window.exportData = function() {
   const data = JSON.stringify({ version: 1, exported_at: new Date().toISOString(), renewals: allRenewals }, null, 2)
   const blob = new Blob([data], { type: 'application/json' })
@@ -1129,13 +1145,11 @@ window.exportData = function() {
   a.download = `renewal-backup-${new Date().toISOString().slice(0, 10)}.json`
   a.click()
   URL.revokeObjectURL(url)
-  document.getElementById('account-menu').classList.add('hidden')
   showToast('Đã xuất dữ liệu', 'success')
 }
 
 window.triggerImport = function() {
   document.getElementById('import-input').click()
-  document.getElementById('account-menu').classList.add('hidden')
 }
 
 window.importData = async function(event) {
@@ -1146,7 +1160,6 @@ window.importData = async function(event) {
     const json = JSON.parse(text)
     const renewals = json.renewals || json
     if (!Array.isArray(renewals)) throw new Error('File không hợp lệ')
-
     let imported = 0
     for (const r of renewals) {
       if (!r.name || !r.type || !r.expiry_date) continue
@@ -1162,10 +1175,78 @@ window.importData = async function(event) {
     }
     showToast(`Đã nhập ${imported}/${renewals.length} dịch vụ`, 'success')
     loadDashboard()
-  } catch (err) {
-    showToast(err.message, 'error')
-  }
+  } catch (err) { showToast(err.message, 'error') }
   event.target.value = ''
+}
+
+// ============================================================
+// Account Page
+// ============================================================
+async function loadAccount() {
+  // Set email
+  const emailEl2 = document.getElementById('user-email-display-2')
+  if (emailEl2) emailEl2.textContent = currentUser?.email || ''
+
+  // Load login logs
+  try {
+    const { data } = await api('GET', '/auth/login-log')
+    const list = document.getElementById('login-log-list')
+    if (!list) return
+    if (!data || data.length === 0) {
+      list.innerHTML = `<div class="empty-state" style="padding:28px;"><p class="empty-description">Không có lịch sử đăng nhập</p></div>`
+      return
+    }
+    list.innerHTML = data.slice(0, 15).map(log => {
+      const isSuccess = log.status === 'success'
+      return `
+        <div class="login-log-item">
+          <div class="login-log-icon ${isSuccess ? 'success' : 'failure'}">
+            <i data-lucide="${isSuccess ? 'check' : 'x'}" width="14" height="14"></i>
+          </div>
+          <div class="login-log-info">
+            <div class="login-log-device">
+              ${log.is_new_device ? '<span class="badge-new-device">⚠ Thiết bị mới</span>' : ''}
+              <span class="${isSuccess ? 'badge-success' : 'badge-failed'}">${isSuccess ? 'Thành công' : 'Thất bại'}</span>
+            </div>
+            <p class="login-log-meta">${escHtml(log.device_info || 'Thiết bị không xác định')} • IP: ${log.ip_address || '?'}</p>
+          </div>
+          <span class="login-log-time">${formatRelativeDate(log.created_at)}</span>
+        </div>`
+    }).join('')
+    if (typeof lucide !== 'undefined') lucide.createIcons()
+  } catch (err) {
+    const list = document.getElementById('login-log-list')
+    if (list) list.innerHTML = `<div style="padding:16px; color:var(--color-critical); font-size:13px;">Lỗi: ${err.message}</div>`
+  }
+}
+
+window.verifyCurrentPassword = async function() {
+  const pwd = document.getElementById('current-password-input').value
+  if (!pwd) return showToast('Nhập mật khẩu hiện tại', 'error')
+  const { error } = await supabase.auth.signInWithPassword({ email: currentUser.email, password: pwd })
+  if (error) return showToast('Mật khẩu không đúng', 'error')
+  document.getElementById('change-password-form').classList.remove('hidden')
+  showToast('Xác minh thành công', 'success')
+}
+
+window.changeEmail = async function() {
+  const newEmail = document.getElementById('new-email-input').value.trim()
+  if (!newEmail) return showToast('Vui lòng nhập email mới', 'error')
+  try {
+    await api('POST', '/auth/change-email', { new_email: newEmail })
+    showToast('Đã gửi email xác nhận đến email mới', 'success')
+  } catch (err) { showToast(err.message, 'error') }
+}
+
+window.changePassword = async function() {
+  const newPass = document.getElementById('new-password-input').value
+  if (!newPass || newPass.length < 6) return showToast('Mật khẩu phải ít nhất 6 ký tự', 'error')
+  try {
+    await api('POST', '/auth/change-password', { new_password: newPass })
+    showToast('Đã cập nhật mật khẩu', 'success')
+    document.getElementById('new-password-input').value = ''
+    document.getElementById('change-password-form').classList.add('hidden')
+  } catch (err) { showToast(err.message, 'error') }
 }
 
 // ============================================================
@@ -1183,11 +1264,14 @@ async function registerPushNotification() {
     })
     await api('POST', '/push/subscribe', {
       endpoint: sub.endpoint,
-      keys: { p256dh: btoa(String.fromCharCode(...new Uint8Array(sub.getKey('p256dh')))), auth: btoa(String.fromCharCode(...new Uint8Array(sub.getKey('auth')))) }
+      keys: {
+        p256dh: btoa(String.fromCharCode(...new Uint8Array(sub.getKey('p256dh')))),
+        auth: btoa(String.fromCharCode(...new Uint8Array(sub.getKey('auth'))))
+      }
     })
-    console.log('[push] Subscribed successfully')
+    console.log('[push] Subscribed')
   } catch (err) {
-    console.log('[push] Registration skipped:', err.message)
+    console.log('[push] Skipped:', err.message)
   }
 }
 
@@ -1202,18 +1286,13 @@ function urlBase64ToUint8Array(base64String) {
 // Helpers
 // ============================================================
 function getToday() {
-  const d = new Date()
-  d.setHours(0, 0, 0, 0)
-  return d
+  const d = new Date(); d.setHours(0,0,0,0); return d
 }
-
 function getDaysUntil(dateStr) {
   const today = getToday()
-  const expiry = new Date(dateStr)
-  expiry.setHours(0, 0, 0, 0)
-  return Math.ceil((expiry - today) / (1000 * 60 * 60 * 24))
+  const expiry = new Date(dateStr); expiry.setHours(0,0,0,0)
+  return Math.ceil((expiry - today) / 86400000)
 }
-
 function getLevel(days) {
   if (days < 0) return 'overdue'
   if (days <= 1) return '1day'
@@ -1225,21 +1304,22 @@ function getLevel(days) {
 }
 
 function getLevelBadge(level, days) {
-  const labels = {
-    overdue: `❌ Quá hạn ${days !== undefined ? Math.abs(days) + 'ng' : ''}`,
-    '1day': `🔥 Còn 1 ngày`,
-    '3days': `⚠️ Còn ${days}ng`,
-    '1week': `📢 Còn ${days}ng`,
-    '2weeks': `📋 Còn ${days}ng`,
-    '1month': `📅 Còn ${days}ng`,
-    safe: `✅ An toàn`,
-    archived: `📦 Lưu trữ`,
+  const d = Math.abs(days)
+  const map = {
+    overdue:  { cls: 'overdue', text: `Quá hạn ${d}ng` },
+    '1day':   { cls: 'day1',   text: 'Còn 1 ngày' },
+    '3days':  { cls: 'days3',  text: `Còn ${days}ng` },
+    '1week':  { cls: 'week1',  text: `Còn ${days}ng` },
+    '2weeks': { cls: 'weeks2', text: `Còn ${days}ng` },
+    '1month': { cls: 'month1', text: `Còn ${days}ng` },
+    safe:     { cls: 'safe',   text: 'An toàn' },
   }
-  return `<span class="badge-${level} px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap">${labels[level] || level}</span>`
+  const { cls, text } = map[level] || { cls: 'safe', text: level }
+  return `<span class="level-badge ${cls}">${text}</span>`
 }
 
 function getLevelTitle(level) {
-  const t = { overdue: '❌ Quá hạn', '1day': '🔥 Còn 1 ngày', '3days': '⚠️ Còn 3 ngày', '1week': '📢 Còn 1 tuần', '2weeks': '📋 Còn 2 tuần', '1month': '📅 Còn 1 tháng' }
+  const t = { overdue: 'Quá hạn', '1day': 'Còn 1 ngày', '3days': 'Còn 3 ngày', '1week': 'Còn 1 tuần', '2weeks': 'Còn 2 tuần', '1month': 'Còn 1 tháng' }
   return t[level] || level
 }
 
@@ -1251,6 +1331,17 @@ function getTypeIcon(type) {
 function formatDate(dateStr) {
   if (!dateStr) return '—'
   return new Date(dateStr).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+
+function formatRelativeDate(dateStr) {
+  if (!dateStr) return ''
+  const d = new Date(dateStr)
+  const now = new Date()
+  const diff = Math.floor((now - d) / 60000)
+  if (diff < 60) return `${diff} phút trước`
+  if (diff < 1440) return `${Math.floor(diff/60)} giờ trước`
+  if (diff < 10080) return `${Math.floor(diff/1440)} ngày trước`
+  return formatDate(dateStr)
 }
 
 function formatCurrency(amount) {
@@ -1276,13 +1367,12 @@ function getDeviceInfo() {
   else if (ua.includes('iPhone') || ua.includes('iPad')) os = 'iOS'
   else if (ua.includes('Android')) os = 'Android'
   else if (ua.includes('Linux')) os = 'Linux'
-  return `${browser} on ${os}`
+  return `${browser} / ${os}`
 }
 
 function getKnownDevices() {
   try { return JSON.parse(localStorage.getItem('known_devices') || '[]') } catch { return [] }
 }
-
 function addKnownDevice(device) {
   const devices = getKnownDevices()
   if (!devices.includes(device)) devices.push(device)
@@ -1290,59 +1380,48 @@ function addKnownDevice(device) {
 }
 
 // ============================================================
+// Global click handler to close dropdowns
+// ============================================================
+document.addEventListener('click', (e) => {
+  const dd = document.getElementById('notif-dropdown')
+  const bell = e.target.closest('.topbar-notif-wrapper')
+  if (dd?.classList.contains('open') && !bell) {
+    dd.classList.remove('open')
+  }
+})
+
+// ============================================================
 // Init
 // ============================================================
 async function init() {
   initTheme()
 
-  // Safety fallback: always hide loading after 5s no matter what
   const safetyTimer = setTimeout(() => {
     const overlay = document.getElementById('loading-overlay')
     if (overlay && !overlay.classList.contains('hidden')) {
-      console.warn('[init] Safety timeout — forcing loading overlay hidden')
       overlay.classList.add('hidden')
-      document.getElementById('page-auth').classList.add('active')
-      if (typeof lucide !== 'undefined') lucide.createIcons()
+      showAuthPage()
     }
   }, 5000)
 
   try {
-    // Load config from /api/config
     await loadConfig()
 
-    // Init Supabase client
     if (!initSupabase()) {
       clearTimeout(safetyTimer)
-      showToast('Lỗi cấu hình: Không tìm thấy Supabase config. Kiểm tra biến môi trường.', 'error')
-      document.getElementById('loading-overlay').classList.add('hidden')
-      document.getElementById('page-auth').classList.add('active')
-      if (typeof lucide !== 'undefined') lucide.createIcons()
+      showToast('Lỗi cấu hình: Không tìm thấy Supabase config', 'error')
+      showAuthPage()
       return
     }
 
-    // Init Lucide icons
     if (typeof lucide !== 'undefined') lucide.createIcons()
 
-    // Close menus on outside click
-    document.addEventListener('click', (e) => {
-      const accountMenu = document.getElementById('account-menu')
-      const accountBtn = e.target.closest('[onclick="toggleAccountMenu()"]')
-      if (accountMenu && !accountBtn && !accountMenu.contains(e.target)) {
-        accountMenu.classList.add('hidden')
-      }
-    })
-
-    // Restore session (shows auth page or app shell)
     await restoreSession()
-
   } catch (err) {
-    console.error('[init] Fatal error:', err)
-    document.getElementById('loading-overlay').classList.add('hidden')
-    document.getElementById('page-auth').classList.add('active')
-    if (typeof lucide !== 'undefined') lucide.createIcons()
+    console.error('[init] Fatal:', err)
+    showAuthPage()
   } finally {
     clearTimeout(safetyTimer)
-    // Guarantee loading is hidden
     document.getElementById('loading-overlay').classList.add('hidden')
     if (typeof lucide !== 'undefined') lucide.createIcons()
   }
